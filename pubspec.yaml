@@ -34,6 +34,8 @@ dependencies:
   percent_indicator: ^4.2.4        # Download progress bars
   flutter_animate: ^4.5.0          # Micro-animations
   cupertino_icons: ^1.0.8
+  speech_to_text: ^7.4.0
+  flutter_tts: ^4.2.5
 
   # ── Background / Wake Lock ─────────────────────────────────────
   wakelock_plus: ^1.2.10             # Keep screen on during downloads
