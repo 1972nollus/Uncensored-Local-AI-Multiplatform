@@ -778,9 +778,20 @@ class _HardwareSettingsCardState extends State<_HardwareSettingsCard> {
       return {'backend': 'cpu', 'gpuLayers': 0, 'reason': 'CPU mode — most compatible on desktop'};
     }
 
-    // Android/iOS: detect available RAM and processor count
+    // iOS llama.cpp builds use Metal natively. Keep the backend selector on
+    // CPU (the public llamadart 0.6.x enum exposes CPU/Vulkan/OpenCL), but
+    // enable layer offloading so the native Apple backend can use Metal.
+    if (Platform.isIOS) {
+      return {
+        'backend': 'cpu',
+        'gpuLayers': 20,
+        'reason': 'Apple Metal offload • 20 layers (safe starting point for 6 GB RAM)',
+      };
+    }
+
+    // Android: detect available processor count
     final cores = Platform.numberOfProcessors;
-    
+
     if (cores >= 8) {
       // High-end device (e.g. Snapdragon 8 Gen 2+, Dimensity 9000+)
       return {
@@ -832,7 +843,7 @@ class _HardwareSettingsCardState extends State<_HardwareSettingsCard> {
     setState(() => _backend = val);
     widget.storage.backendType = val;
     // Auto-set sensible GPU layers when switching
-    if (val == 'cpu') {
+    if (val == 'cpu' && !Platform.isIOS) {
       setState(() => _gpuLayers = 0);
       widget.storage.gpuLayers = 0;
     } else if (_gpuLayers == 0) {
@@ -853,7 +864,9 @@ class _HardwareSettingsCardState extends State<_HardwareSettingsCard> {
       case 'opencl':
         return 'GPU (OpenCL) • ${_gpuLayers.toInt()} layers';
       default:
-        return 'CPU Only';
+        return Platform.isIOS && _gpuLayers > 0
+            ? 'Apple Metal • ${_gpuLayers.toInt()} layers'
+            : 'CPU Only';
     }
   }
 
@@ -999,7 +1012,7 @@ class _HardwareSettingsCardState extends State<_HardwareSettingsCard> {
                 min: 0,
                 max: 99,
                 divisions: 99,
-                onChanged: _backend == 'cpu' ? null : _saveGpuLayers,
+                onChanged: _backend == 'cpu' && !Platform.isIOS ? null : _saveGpuLayers,
               ),
             ),
             Text(

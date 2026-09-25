@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:flutter_tts/flutter_tts.dart';
 
 import '../theme/app_colors.dart';
 import '../controllers/chat_controller.dart';
@@ -26,6 +28,10 @@ class _HomeScreenState extends State<HomeScreen> {
   final _themeCtrl = Get.find<ThemeController>();
   final _msgController = TextEditingController();
   final _scrollController = ScrollController();
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  final FlutterTts _tts = FlutterTts();
+  bool _isListening = false;
+  bool _speakResponses = true;
   bool _sidebarOpen = true;
   bool _autoScrollToBottom = true;
   String? _lastRenderedChatId;
@@ -41,12 +47,17 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _scrollController.addListener(_handleChatScroll);
+    _tts.setLanguage('nl-NL');
+    _tts.setSpeechRate(0.48);
+    _tts.setVolume(1.0);
   }
 
   @override
   void dispose() {
     _scrollController.removeListener(_handleChatScroll);
     _scrollController.dispose();
+    _speech.stop();
+    _tts.stop();
     _msgController.dispose();
     super.dispose();
   }
@@ -77,9 +88,13 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  void _send() {
+  Future<void> _send() async {
     final text = _msgController.text.trim();
     if (text.isEmpty) return;
+
+    FocusManager.instance.primaryFocus?.unfocus();
+    await _speech.stop();
+    if (mounted) setState(() => _isListening = false);
 
     if (_chatCtrl.activeChat == null) {
       _chatCtrl.newChat();
@@ -87,11 +102,60 @@ class _HomeScreenState extends State<HomeScreen> {
 
     _msgController.clear();
     _autoScrollToBottom = true;
-    _chatCtrl.sendMessage(
+    await _chatCtrl.sendMessage(
       text,
       modelFilename: _modelCtrl.selectedModelFilename.value,
     );
     _scrollToBottom(force: true);
+
+    if (_speakResponses) {
+      final chat = _chatCtrl.activeChat;
+      if (chat != null && chat.messages.isNotEmpty) {
+        final answer = chat.messages.last.content.trim();
+        if (answer.isNotEmpty && !answer.startsWith('⚠')) {
+          await _tts.stop();
+          await _tts.speak(answer);
+        }
+      }
+    }
+  }
+
+  Future<void> _toggleListening() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    if (_isListening) {
+      await _speech.stop();
+      if (mounted) setState(() => _isListening = false);
+      return;
+    }
+
+    final available = await _speech.initialize(
+      onStatus: (status) {
+        if ((status == 'done' || status == 'notListening') && mounted) {
+          setState(() => _isListening = false);
+        }
+      },
+      onError: (_) {
+        if (mounted) setState(() => _isListening = false);
+      },
+    );
+    if (!available) {
+      Get.snackbar('Voice unavailable', 'Speech recognition is not available on this device.');
+      return;
+    }
+
+    setState(() => _isListening = true);
+    await _speech.listen(
+      localeId: 'nl_NL',
+      listenFor: const Duration(seconds: 60),
+      pauseFor: const Duration(seconds: 3),
+      onResult: (result) {
+        _msgController.text = result.recognizedWords;
+        _msgController.selection = TextSelection.collapsed(offset: _msgController.text.length);
+        if (result.finalResult && mounted) {
+          setState(() => _isListening = false);
+        }
+      },
+    );
   }
 
   @override
@@ -355,7 +419,10 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         child: NavigationBar(
           selectedIndex: _mobileTabIndex,
-          onDestinationSelected: (i) => setState(() => _mobileTabIndex = i),
+          onDestinationSelected: (i) {
+            FocusManager.instance.primaryFocus?.unfocus();
+            setState(() => _mobileTabIndex = i);
+          },
           backgroundColor: Colors.transparent,
           elevation: 0,
           indicatorColor: AppColors.accent.withOpacity(0.15),
@@ -1078,6 +1145,31 @@ class _HomeScreenState extends State<HomeScreen> {
                   contentPadding: const EdgeInsets.fromLTRB(24, 14, 8, 14),
                 ),
                 onSubmitted: (_) => _send(),
+              ),
+            ),
+
+            // Voice input
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: _circleButton(
+                icon: _isListening ? Icons.mic_rounded : Icons.mic_none_rounded,
+                color: _isListening ? AppColors.red : AppColors.accent,
+                onTap: _toggleListening,
+                tooltip: _isListening ? 'Stop listening' : 'Speak',
+              ),
+            ),
+
+            // Toggle spoken responses
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: _circleButton(
+                icon: _speakResponses ? Icons.volume_up_rounded : Icons.volume_off_rounded,
+                color: _speakResponses ? AppColors.accent : context.textD,
+                onTap: () {
+                  setState(() => _speakResponses = !_speakResponses);
+                  if (!_speakResponses) _tts.stop();
+                },
+                tooltip: _speakResponses ? 'Voice replies on' : 'Voice replies off',
               ),
             ),
 
