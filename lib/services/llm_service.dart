@@ -172,9 +172,7 @@ class LlmService extends GetxService {
       // On iOS the native llama.cpp library uses Metal for layer offload.
       // GpuBackend.cpu selects the Apple native library; gpuLayers controls offload.
       // If an older install still has 0 saved, use a conservative iOS default.
-      final userGpuLayers = Platform.isIOS && storage.gpuLayers == 0
-          ? 20
-          : storage.gpuLayers;
+      final userGpuLayers = storage.gpuLayers;
 
       // Optimize threads: 4 for both generation and batch processing to keep memory stable.
       final params = ModelParams(
