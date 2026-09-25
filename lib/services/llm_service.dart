@@ -150,9 +150,12 @@ class LlmService extends GetxService {
       // Use smaller context on Android to prevent OOM kills.
       // Desktop can handle 2048, but Android devices with limited RAM
       // need 1024 to avoid the Low Memory Killer (LMK).
-      final contextSize = Platform.isAndroid ? 1024 : 2048;
-
-      // Map the string backend to GpuBackend enum
+      final contextSize = Platform.isIOS
+          ? 512
+         : Platform.isAndroid
+             ? 1024
+             : 2048;
+     // Map the string backend to GpuBackend enum
       final storage = Get.find<ChatStorageService>();
       GpuBackend parsedBackend;
       switch (storage.backendType) {
