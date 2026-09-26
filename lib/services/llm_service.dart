@@ -184,11 +184,30 @@ class LlmService extends GetxService {
       );
 
       log?.info('Backend=$parsedBackend, GPU layers=$userGpuLayers, ctx=$contextSize, threads=${Platform.numberOfProcessors > 4 ? 4 : 0}', source: 'LLM');
+await _engine!.loadModel(path, modelParams: params);
+progressTimer.cancel();
 
-      await _engine!.loadModel(path, modelParams: params);
-      progressTimer.cancel();
+// Runtime diagnostics: report what llamadart actually selected,
+// not just what was requested in Settings.
+try {
+  final activeBackend = await _engine!.getBackendName();
+  final resolvedGpuLayers = await _engine!.getResolvedGpuLayers();
 
-      if (_loadingCancelled) {
+  log?.info(
+    'Runtime backend=$activeBackend, '
+    'resolved GPU layers=$resolvedGpuLayers, '
+    'requested GPU layers=$userGpuLayers',
+    source: 'LLM',
+  );
+} catch (e) {
+  log?.warning(
+    'Runtime diagnostics unavailable: $e',
+    source: 'LLM',
+  );
+}
+
+if (_loadingCancelled) {
+      
         // User cancelled while loading — full cleanup
         await _fullTeardown();
         _resetLoadingState();
