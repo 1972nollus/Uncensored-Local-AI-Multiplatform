@@ -46,8 +46,9 @@ jobs:
 
       - name: Create unsigned IPA
         run: |
+          rm -rf Payload
           mkdir -p Payload
-          cp -R build/ios/iphoneos/Runner.app Payload/
+          cp -R build/ios/Build/Products/Release-iphoneos/Runner.app Payload/
           zip -r UncensoredLocalAI-unsigned.ipa Payload
 
       - name: Upload IPA
