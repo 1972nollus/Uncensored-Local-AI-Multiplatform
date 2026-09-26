@@ -19,9 +19,15 @@ jobs:
 
       - name: Flutter version
         run: flutter --version
-
       - name: Get dependencies
         run: flutter pub get
+
+      - name: Verify llamadart version
+        run: |
+          echo "=== llamadart dependencies ==="
+          flutter pub deps | grep -i llama || true
+          echo "=== pubspec.lock llamadart entries ==="
+          grep -A 8 -B 2 "llamadart" pubspec.lock || true
 
       - name: Build iOS without signing
         run: flutter build ios --release --no-codesign
