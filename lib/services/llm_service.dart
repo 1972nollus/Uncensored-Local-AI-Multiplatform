@@ -231,6 +231,9 @@ if (_loadingCancelled) {
       loadedModelPath.value = '';
       await _fullTeardown();
       log?.error('Model load failed: $e', source: 'LLM');
+      if (Platform.isIOS && filename.toLowerCase().contains('gemma-4') && e.toString().toLowerCase().contains('context')) {
+        log?.warn('Gemma 4 context creation failed. This may indicate insufficient free iOS memory or unsupported Gemma 4 features in the bundled llama.cpp runtime. Try a smaller GGUF and collect native diagnostics before changing backend settings.', source: 'LLM');
+      }
 
       // Provide a clearer error message for common Android failures
       if (Platform.isAndroid) {
