@@ -200,7 +200,7 @@ try {
     source: 'LLM',
   );
 } catch (e) {
-  log?.warning(
+  log?.warn(
     'Runtime diagnostics unavailable: $e',
     source: 'LLM',
   );
