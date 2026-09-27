@@ -134,8 +134,11 @@ class _HomeScreenState extends State<HomeScreen> {
           setState(() => _isListening = false);
         }
       },
-      onError: (_) {
-        if (mounted) setState(() => _isListening = false);
+      onError: (error) {
+        if (mounted) {
+          setState(() => _isListening = false);
+          Get.snackbar('Speech recognition error', error.errorMsg);
+        }
       },
     );
     if (!available) {
@@ -408,7 +411,10 @@ class _HomeScreenState extends State<HomeScreen> {
             // Tab 1: Models
             const ModelLibraryScreen(embedded: true),
             // Tab 2: Settings
-            const SettingsScreen(embedded: true),
+            SettingsScreen(embedded: true, onClose: () {
+              FocusManager.instance.primaryFocus?.unfocus();
+              if (mounted) setState(() => _mobileTabIndex = 0);
+            }),
           ],
         ),
       ),
