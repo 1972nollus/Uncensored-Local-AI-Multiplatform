@@ -315,8 +315,9 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
               Text(_listening ? 'Tik om te pauzeren' : 'Tik op de cirkel om te spreken',
                   style: const TextStyle(color: Colors.white54)),
               const SizedBox(height: 16),
-              TextButton.icon(
-                onPressed: () async {
+              Obx(() => TextButton.icon(
+                onPressed: _models.isLoadingModel.value ? null : () async {
+                  if (_models.selectedModelFilename.value == 'Dolphin3.0-Llama3.2-3B-Q4_K_M.gguf' && _llm.isLoaded.value) return;
                   final model = _models.catalog.firstWhereOrNull((m) => m.id == 'dolphin3-llama32-3b');
                   if (model == null) return;
                   final confirmed = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
@@ -337,8 +338,15 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
                   if (mounted) setState(() => _status = _llm.isLoaded.value ? 'Model geladen. Tik om te spreken.' : 'Model kon niet worden geladen.');
                 },
                 icon: const Icon(Icons.download_outlined, color: Colors.white70),
-                label: const Text('Dolphin 3B downloaden / laden', style: TextStyle(color: Colors.white70)),
-              ),
+                label: Text(
+                  _models.isLoadingModel.value ? 'Model laden...' :
+                  _models.selectedModelFilename.value == 'Dolphin3.0-Llama3.2-3B-Q4_K_M.gguf' && _llm.isLoaded.value
+                    ? 'Dolphin 3B is geladen' :
+                  _models.downloadedModels.contains('Dolphin3.0-Llama3.2-3B-Q4_K_M.gguf')
+                    ? 'Dolphin 3B laden' : 'Dolphin 3B downloaden',
+                  style: const TextStyle(color: Colors.white70),
+                ),
+              )),
               const SizedBox(height: 12),
             ],
           ),
