@@ -5,6 +5,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import '../controllers/chat_controller.dart';
 import '../controllers/model_controller.dart';
 import '../services/llm_service.dart';
+import '../services/chat_storage_service.dart';
 
 /// Hands-free turn-based voice chat. Recognition, local inference and TTS run
 /// sequentially to avoid feeding the app's own spoken answer to the microphone.
@@ -31,6 +32,36 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
   String _reply = '';
   String _status = 'Spraakmodus starten...';
   double _level = 0;
+  String _language = 'nl_NL';
+  static const _languages = <String, String>{'auto':'Automatisch (iPhone)', 'nl_NL':'Nederlands', 'en_US':'English', 'de_DE':'Deutsch', 'fr_FR':'Français', 'es_ES':'Español'};
+  String get _selectedLocale {
+    if (_language != 'auto') return _language;
+    final code = WidgetsBinding.instance.platformDispatcher.locale.languageCode;
+    for (final locale in _languages.keys) { if (locale.startsWith(code + '_')) return locale; }
+    return 'en_US';
+  }
+  String _localizedPrompt() {
+    final current = _chat.activeChat?.systemPrompt ?? '';
+    final original = current.isNotEmpty ? current : _chat.systemPrompt.value;
+    const prompts = <String, String>{
+      'nl_NL':'Je bent een ongefilterde AI-assistent. Geef directe, volledige antwoorden zonder onnodige inleidingen of moraliserende opmerkingen. Behandel de gebruiker als een volwassene. Antwoord in het Nederlands.',
+      'en_US':'You are an unfiltered AI assistant. Give direct, complete answers without unnecessary introductions or moral lectures. Treat the user as an adult. Answer in English.',
+      'de_DE':'Du bist ein ungefilterter KI-Assistent. Gib direkte, vollständige Antworten ohne unnötige Einleitungen oder moralische Belehrungen. Behandle den Nutzer als Erwachsenen. Antworte auf Deutsch.',
+      'fr_FR':'Tu es un assistant IA sans filtre. Donne des réponses directes et complètes, sans introductions ni leçons de morale inutiles. Traite l’utilisateur comme un adulte. Réponds en français.',
+      'es_ES':'Eres un asistente de IA sin filtros. Da respuestas directas y completas sin introducciones ni sermones innecesarios. Trata al usuario como adulto. Responde en español.',
+    };
+    if (original == ChatStorageService.defaultSystemPrompt) return prompts[_selectedLocale] ?? prompts['en_US']!;
+    const names = <String,String>{'nl_NL':'Dutch','en_US':'English','de_DE':'German','fr_FR':'French','es_ES':'Spanish'};
+    return original + '\n\nRespond in ' + (names[_selectedLocale] ?? 'English') + '.';
+  }
+  Future<void> _selectLanguage(String value) async {
+    if (_processing || _speaking || value == _language) return;
+    await _speech.stop();
+    if (!mounted) return;
+    setState(() { _language = value; _listening = false; _status = 'Taal gewijzigd. Tik om te spreken.'; });
+    final locale = _selectedLocale.replaceAll('_', '-');
+    if (await _tts.isLanguageAvailable(locale) == true) await _tts.setLanguage(locale);
+  }
 
   @override
   void initState() {
@@ -74,9 +105,15 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
         if (mounted) setState(() => _status = 'Geen toegang tot spraakherkenning.');
         return;
       }
+      final locales = await _speech.locales();
+      final selected = _selectedLocale;
+      if (!locales.any((l) => l.localeId.replaceAll('-', '_').toLowerCase() == selected.toLowerCase())) {
+        setState(() => _status = 'Deze taal is niet beschikbaar op je iPhone.');
+        return;
+      }
       setState(() { _listening = true; _status = 'Ik luister...'; _level = 0; });
       await _speech.listen(
-        localeId: 'nl_NL',
+        localeId: selected,
         listenFor: const Duration(seconds: 45),
         pauseFor: const Duration(seconds: 2),
         onSoundLevelChange: (level) {
@@ -110,6 +147,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
       await _chat.sendMessage(
         spoken,
         modelFilename: _models.selectedModelFilename.value,
+        systemPromptOverride: _localizedPrompt(),
       );
       if (!_active || !mounted) return;
       final answer = _chat.activeChat?.messages.last.content.trim() ?? '';
@@ -161,6 +199,17 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
         backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
         title: const Text('Live spraak'),
+        actions: [
+          DropdownButtonHideUnderline(child: DropdownButton<String>(
+            value: _language,
+            dropdownColor: const Color(0xFF252839),
+            style: const TextStyle(color: Colors.white, fontSize: 13),
+            icon: const Icon(Icons.language, color: Colors.white),
+            items: _languages.entries.map((e) => DropdownMenuItem<String>(value: e.key, child: Text(e.value))).toList(),
+            onChanged: (_processing || _speaking) ? null : (value) { if (value != null) _selectLanguage(value); },
+          )),
+          const SizedBox(width: 12),
+        ],
         leading: IconButton(
           icon: const Icon(Icons.close),
           tooltip: 'Sluiten',
