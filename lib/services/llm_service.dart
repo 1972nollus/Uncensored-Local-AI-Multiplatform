@@ -178,7 +178,7 @@ class LlmService extends GetxService {
       final params = ModelParams(
         contextSize: contextSize,
         gpuLayers: userGpuLayers, 
-        preferredBackend: parsedBackend,
+        preferredBackend: Platform.isIOS ? GpuBackend.cpu : parsedBackend,
         numberOfThreads: Platform.numberOfProcessors > 4 ? 4 : 0, 
         numberOfThreadsBatch: Platform.numberOfProcessors > 4 ? 4 : 0,
       );
@@ -302,63 +302,47 @@ if (_loadingCancelled) {
     final stopwatch = Stopwatch()..start();
     int tokenCount = 0;
 
-    // Buffer to detect multi-token stop sequences
-    String buffer = '';
-
     try {
-      // Build the full prompt from messages
-      final prompt = _buildPrompt(messages, systemPrompt);
-
-      await for (final token in _engine!.generate(prompt)) {
+      final chatMessages = <LlamaChatMessage>[];
+      if (systemPrompt != null && systemPrompt.trim().isNotEmpty) {
+        chatMessages.add(LlamaChatMessage.fromText(
+          role: LlamaChatRole.system,
+          text: systemPrompt,
+        ));
+      }
+      for (final message in messages) {
+        final role = switch (message['role']) {
+          'system' => LlamaChatRole.system,
+          'assistant' => LlamaChatRole.assistant,
+          _ => LlamaChatRole.user,
+        };
+        chatMessages.add(LlamaChatMessage.fromText(
+          role: role,
+          text: message['content'] ?? '',
+        ));
+      }
+      // Let llamadart use the GGUF model's own chat template.
+      final params = GenerationParams(
+        temp: temperature,
+        topP: 0.95,
+        minP: 0.05,
+        penalty: 1.0,
+        maxTokens: 256,
+      );
+      await for (final chunk in _engine!.create(
+        chatMessages,
+        params: params,
+        toolChoice: ToolChoice.none,
+      )) {
+        final choice = chunk.choices.isNotEmpty ? chunk.choices.first : null;
+        final content = choice?.delta.content;
+        if (content == null || content.isEmpty) continue;
         tokenCount++;
         if (stopwatch.elapsedMilliseconds > 0) {
           tokensPerSecond.value =
               tokenCount / (stopwatch.elapsedMilliseconds / 1000);
         }
-
-        // Accumulate into buffer for stop-pattern detection
-        buffer += token;
-
-        // Check if model is hallucinating a user turn — stop immediately
-        if (_userTurnPattern.hasMatch(buffer)) {
-          final cleaned = buffer
-              .replaceAll(_stopPatterns, '')
-              .replaceAll(_userTurnPattern, '')
-              .trim();
-          if (cleaned.isNotEmpty) {
-            yield cleaned;
-          }
-          break;
-        }
-
-        // Check if buffer contains any stop pattern
-        if (_stopPatterns.hasMatch(buffer)) {
-          // Yield everything before the stop pattern, then stop
-          final cleaned = buffer.replaceAll(_stopPatterns, '').trim();
-          if (cleaned.isNotEmpty) {
-            yield cleaned;
-          }
-          break;
-        }
-
-        // If buffer is getting long enough that we know it's safe, flush it
-        // Keep last 30 chars to detect split stop sequences
-        if (buffer.length > 40) {
-          final safe = buffer.substring(0, buffer.length - 30);
-          buffer = buffer.substring(buffer.length - 30);
-          yield safe;
-        }
-      }
-
-      // Flush any remaining buffer (cleaning all control patterns)
-      if (buffer.isNotEmpty) {
-        final cleaned = buffer
-            .replaceAll(_stopPatterns, '')
-            .replaceAll(_userTurnPattern, '')
-            .trim();
-        if (cleaned.isNotEmpty) {
-          yield cleaned;
-        }
+        yield content;
       }
     } finally {
       stopwatch.stop();
