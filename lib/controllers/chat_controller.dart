@@ -70,7 +70,7 @@ class ChatController extends GetxController {
   }
 
   /// Send a user message and stream AI response.
-  Future<void> sendMessage(String text, {String? modelFilename}) async {
+  Future<void> sendMessage(String text, {String? modelFilename, String? systemPromptOverride}) async {
     if (text.trim().isEmpty) return;
     final chat = activeChat;
     if (chat == null) return;
@@ -106,9 +106,9 @@ class ChatController extends GetxController {
     try {
       final stream = _llm.generate(
         messages: history,
-        systemPrompt: chat.systemPrompt.isNotEmpty
+        systemPrompt: systemPromptOverride ?? (chat.systemPrompt.isNotEmpty
             ? chat.systemPrompt
-            : systemPrompt.value,
+            : systemPrompt.value),
         temperature: temperature.value,
       );
 
