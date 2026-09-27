@@ -625,6 +625,20 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
 
+          // Always-visible entry point for the dedicated live voice screen.
+          IconButton(
+            icon: const Icon(Icons.graphic_eq_rounded, size: 25, color: AppColors.accent),
+            tooltip: 'Live spraak',
+            onPressed: () async {
+              FocusManager.instance.primaryFocus?.unfocus();
+              await _tts.stop();
+              if (!mounted) return;
+              Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => const VoiceChatScreen(),
+              ));
+            },
+          ),
+
           // New chat button — on the right
           IconButton(
             icon: Icon(Icons.edit_square, size: 20, color: context.textM),
