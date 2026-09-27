@@ -13,6 +13,7 @@ import '../widgets/chat_bubble.dart';
 import '../widgets/typing_indicator.dart';
 import 'model_library_screen.dart';
 import 'settings_screen.dart';
+import 'voice_chat_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -1154,14 +1155,21 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
 
-            // Voice input
+            // Open dedicated hands-free voice mode instead of the old mic.
             Padding(
               padding: const EdgeInsets.only(bottom: 6),
               child: _circleButton(
-                icon: _isListening ? Icons.mic_rounded : Icons.mic_none_rounded,
-                color: _isListening ? AppColors.red : AppColors.accent,
-                onTap: _toggleListening,
-                tooltip: _isListening ? 'Stop listening' : 'Speak',
+                icon: Icons.graphic_eq_rounded,
+                color: AppColors.accent,
+                onTap: () async {
+                  FocusManager.instance.primaryFocus?.unfocus();
+                  await _tts.stop();
+                  if (!mounted) return;
+                  Navigator.of(context).push(MaterialPageRoute<void>(
+                    builder: (_) => const VoiceChatScreen(),
+                  ));
+                },
+                tooltip: 'Live spraak',
               ),
             ),
 
