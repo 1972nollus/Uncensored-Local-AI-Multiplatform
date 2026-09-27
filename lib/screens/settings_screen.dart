@@ -14,13 +14,14 @@ import '../services/chat_storage_service.dart';
 class SettingsScreen extends StatelessWidget {
   /// When true, no Scaffold — just the body content for embedding in tabs.
   final bool embedded;
+  final VoidCallback? onClose;
 
-  const SettingsScreen({super.key, this.embedded = false});
+  const SettingsScreen({super.key, this.embedded = false, this.onClose});
 
   @override
   Widget build(BuildContext context) {
     if (embedded) {
-      return _SettingsBody(showBackButton: false);
+      return _SettingsBody(showBackButton: false, onClose: onClose);
     }
     return Scaffold(
       backgroundColor: context.bg,
@@ -31,8 +32,9 @@ class SettingsScreen extends StatelessWidget {
 
 class _SettingsBody extends StatelessWidget {
   final bool showBackButton;
+  final VoidCallback? onClose;
 
-  const _SettingsBody({this.showBackButton = false});
+  const _SettingsBody({this.showBackButton = false, this.onClose});
 
   @override
   Widget build(BuildContext context) {
@@ -67,14 +69,12 @@ class _SettingsBody extends StatelessWidget {
                     onPressed: () => Get.back(),
                   ),
                 if (!showBackButton) const SizedBox(width: 16),
-                Text(
-                  'Settings',
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w600,
-                    color: context.text,
-                  ),
-                ),
+                Expanded(child: Text('Settings', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: context.text))),
+                IconButton(tooltip: 'Close settings', icon: Icon(Icons.close_rounded, color: context.text), onPressed: () {
+                  FocusManager.instance.primaryFocus?.unfocus();
+                  if (onClose != null) { onClose!(); }
+                  else if (Navigator.of(context).canPop()) { Navigator.of(context).pop(); }
+                }),
               ],
             ),
           ),
@@ -83,6 +83,7 @@ class _SettingsBody extends StatelessWidget {
         // ── Body ─────────────────────────────────────
         Expanded(
           child: ListView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             padding: const EdgeInsets.all(20),
             children: [
               // ── Appearance ────────────────────────────────
@@ -769,6 +770,7 @@ class _HardwareSettingsCard extends StatefulWidget {
 class _HardwareSettingsCardState extends State<_HardwareSettingsCard> {
   late String _backend;
   late double _gpuLayers;
+  bool _iosMetalSelected = false;
   bool _showManual = false;
 
   // Auto-detect the best backend and GPU layers for this device
@@ -784,8 +786,8 @@ class _HardwareSettingsCardState extends State<_HardwareSettingsCard> {
     if (Platform.isIOS) {
       return {
         'backend': 'cpu',
-        'gpuLayers': 20,
-        'reason': 'Apple Metal offload • 20 layers (safe starting point for 6 GB RAM)',
+        'gpuLayers': 0,
+        'reason': 'CPU baseline • 0 GPU layers; enable Metal manually to test.',
       };
     }
 
@@ -821,6 +823,7 @@ class _HardwareSettingsCardState extends State<_HardwareSettingsCard> {
     super.initState();
     _backend = widget.storage.backendType;
     _gpuLayers = widget.storage.gpuLayers.toDouble();
+    _iosMetalSelected = Platform.isIOS && _gpuLayers > 0;
   }
 
   void _applyAutoConfig() {
@@ -828,6 +831,7 @@ class _HardwareSettingsCardState extends State<_HardwareSettingsCard> {
     setState(() {
       _backend = config['backend'] as String;
       _gpuLayers = (config['gpuLayers'] as int).toDouble();
+      if (Platform.isIOS) _iosMetalSelected = false;
     });
     widget.storage.backendType = _backend;
     widget.storage.gpuLayers = _gpuLayers.toInt();
@@ -839,17 +843,24 @@ class _HardwareSettingsCardState extends State<_HardwareSettingsCard> {
     );
   }
 
+  void _selectIosCompute(bool metal) {
+    setState(() {
+      _iosMetalSelected = metal;
+      _backend = 'cpu';
+      _gpuLayers = metal ? (_gpuLayers > 0 ? _gpuLayers : 2) : 0;
+    });
+    widget.storage.backendType = 'cpu';
+    widget.storage.gpuLayers = _gpuLayers.toInt();
+  }
+
   void _saveBackend(String val) {
-    setState(() => _backend = val);
+    setState(() {
+      _backend = val;
+      if (val == 'cpu') _gpuLayers = 0;
+      else if (_gpuLayers == 0) _gpuLayers = 2;
+    });
     widget.storage.backendType = val;
-    // Auto-set sensible GPU layers when switching
-    if (val == 'cpu' && !Platform.isIOS) {
-      setState(() => _gpuLayers = 0);
-      widget.storage.gpuLayers = 0;
-    } else if (_gpuLayers == 0) {
-      setState(() => _gpuLayers = 33);
-      widget.storage.gpuLayers = 33;
-    }
+    widget.storage.gpuLayers = _gpuLayers.toInt();
   }
 
   void _saveGpuLayers(double val) {
@@ -972,11 +983,17 @@ class _HardwareSettingsCardState extends State<_HardwareSettingsCard> {
             const SizedBox(height: 12),
             Row(
               children: [
-                _buildBackendButton('CPU', 'cpu'),
-                const SizedBox(width: 8),
-                _buildBackendButton('Vulkan', 'vulkan'),
-                const SizedBox(width: 8),
-                _buildBackendButton('OpenCL', 'opencl'),
+                if (Platform.isIOS) ...[
+                  Expanded(child: ChoiceChip(label: const Text('CPU'), selected: !_iosMetalSelected, onSelected: (_) => _selectIosCompute(false))),
+                  const SizedBox(width: 8),
+                  Expanded(child: ChoiceChip(label: const Text('GPU (Metal)'), selected: _iosMetalSelected, onSelected: (_) => _selectIosCompute(true))),
+                ] else ...[
+                  _buildBackendButton('CPU', 'cpu'),
+                  const SizedBox(width: 8),
+                  _buildBackendButton('Vulkan', 'vulkan'),
+                  const SizedBox(width: 8),
+                  _buildBackendButton('OpenCL', 'opencl'),
+                ],
               ],
             ),
             const SizedBox(height: 16),
@@ -1012,7 +1029,7 @@ class _HardwareSettingsCardState extends State<_HardwareSettingsCard> {
                 min: 0,
                 max: 99,
                 divisions: 99,
-                onChanged: _backend == 'cpu' && !Platform.isIOS ? null : _saveGpuLayers,
+                onChanged: (Platform.isIOS && !_iosMetalSelected) || (!Platform.isIOS && _backend == 'cpu') ? null : _saveGpuLayers,
               ),
             ),
             Text(
