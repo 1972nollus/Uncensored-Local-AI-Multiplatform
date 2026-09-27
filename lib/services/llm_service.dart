@@ -321,9 +321,9 @@ if (_loadingCancelled) {
       }
       final chatMessages = <LlamaChatMessage>[];
       if (systemPrompt != null && systemPrompt.trim().isNotEmpty) {
-        final prompt = systemPrompt.length > 120 && Platform.isIOS
-            ? systemPrompt.substring(0, 120)
-            : systemPrompt;
+        // Preserve full personality instructions. Truncating at 120 characters
+        // silently destroyed the language/personality presets on iOS.
+        final prompt = systemPrompt;
         chatMessages.add(LlamaChatMessage.fromText(
           role: LlamaChatRole.system,
           text: prompt,
