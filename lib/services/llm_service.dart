@@ -151,7 +151,7 @@ class LlmService extends GetxService {
       // Desktop can handle 2048, but Android devices with limited RAM
       // need 1024 to avoid the Low Memory Killer (LMK).
       final contextSize = Platform.isIOS
-          ? 512
+          ? (fileSize < 3 * 1024 * 1024 * 1024 ? 1024 : 512)
          : Platform.isAndroid
              ? 1024
              : 2048;
@@ -303,14 +303,33 @@ if (_loadingCancelled) {
     int tokenCount = 0;
 
     try {
+      // Keep a conservative token budget for mobile, leaving room for output.
+      // Character counts are an estimate; a future update should use the
+      // model tokenizer for exact context accounting.
+      final contextBudget = Platform.isIOS ? 420 : 1800;
+      final recent = <Map<String, String>>[];
+      var remaining = contextBudget;
+      for (final message in messages.reversed) {
+        final content = message['content'] ?? '';
+        if (content.isEmpty) continue;
+        if (recent.isNotEmpty && remaining < 80) break;
+        final trimmed = content.length <= remaining
+            ? content
+            : content.substring(content.length - remaining);
+        recent.insert(0, {'role': message['role'] ?? 'user', 'content': trimmed});
+        remaining -= trimmed.length;
+      }
       final chatMessages = <LlamaChatMessage>[];
       if (systemPrompt != null && systemPrompt.trim().isNotEmpty) {
+        final prompt = systemPrompt.length > 120 && Platform.isIOS
+            ? systemPrompt.substring(0, 120)
+            : systemPrompt;
         chatMessages.add(LlamaChatMessage.fromText(
           role: LlamaChatRole.system,
-          text: systemPrompt,
+          text: prompt,
         ));
       }
-      for (final message in messages) {
+      for (final message in recent) {
         final role = switch (message['role']) {
           'system' => LlamaChatRole.system,
           'assistant' => LlamaChatRole.assistant,
@@ -327,7 +346,7 @@ if (_loadingCancelled) {
         topP: 0.95,
         minP: 0.05,
         penalty: 1.0,
-        maxTokens: 256,
+        maxTokens: Platform.isIOS ? 384 : 512,
       );
       await for (final chunk in _engine!.create(
         chatMessages,
