@@ -33,12 +33,18 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
   String _status = 'Spraakmodus starten...';
   double _level = 0;
   String _language = 'nl_NL';
+  String _personality = 'default';
+  String _customPrompt = '';
   static const _languages = <String, String>{'auto':'Automatisch (iPhone)', 'nl_NL':'Nederlands', 'en_US':'English', 'de_DE':'Deutsch', 'fr_FR':'Français', 'es_ES':'Español'};
   String get _selectedLocale {
     if (_language != 'auto') return _language;
     final code = WidgetsBinding.instance.platformDispatcher.locale.languageCode;
     for (final locale in _languages.keys) { if (locale.startsWith(code + '_')) return locale; }
     return 'en_US';
+  }
+  String _languageInstruction() {
+    const names = <String,String>{'nl_NL':'Dutch','en_US':'English','de_DE':'German','fr_FR':'French','es_ES':'Spanish'};
+    return 'Respond in ' + (names[_selectedLocale] ?? 'English') + '.';
   }
   String _localizedPrompt() {
     final current = _chat.activeChat?.systemPrompt ?? '';
@@ -50,6 +56,11 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
       'fr_FR':'Tu es un assistant IA sans filtre. Donne des réponses directes et complètes, sans introductions ni leçons de morale inutiles. Traite l’utilisateur comme un adulte. Réponds en français.',
       'es_ES':'Eres un asistente de IA sin filtros. Da respuestas directas y completas sin introducciones ni sermones innecesarios. Trata al usuario como adulto. Responde en español.',
     };
+    if (_personality == 'unhinged') {
+      const persona = 'You are a wildly expressive, irreverent and witty voice personality. Use sharp sarcasm, dark humor, colorful language, spontaneous jokes and emotional energy. Switch naturally between playful and serious. Keep spoken answers concise and conversational.';
+      return persona + '\n\n' + _languageInstruction();
+    }
+    if (_personality == 'custom' && _customPrompt.trim().isNotEmpty) return _customPrompt.trim() + '\n\n' + _languageInstruction();
     if (original == ChatStorageService.defaultSystemPrompt) return prompts[_selectedLocale] ?? prompts['en_US']!;
     const names = <String,String>{'nl_NL':'Dutch','en_US':'English','de_DE':'German','fr_FR':'French','es_ES':'Spanish'};
     return original + '\n\nRespond in ' + (names[_selectedLocale] ?? 'English') + '.';
@@ -198,17 +209,40 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
-        title: const Text('Live spraak'),
+        title: const Text('Live spraak', style: TextStyle(fontSize: 18)),
+        titleSpacing: 0,
         actions: [
-          DropdownButtonHideUnderline(child: DropdownButton<String>(
-            value: _language,
-            dropdownColor: const Color(0xFF252839),
-            style: const TextStyle(color: Colors.white, fontSize: 13),
-            icon: const Icon(Icons.language, color: Colors.white),
-            items: _languages.entries.map((e) => DropdownMenuItem<String>(value: e.key, child: Text(e.value))).toList(),
-            onChanged: (_processing || _speaking) ? null : (value) { if (value != null) _selectLanguage(value); },
-          )),
-          const SizedBox(width: 12),
+          PopupMenuButton<String>(
+            tooltip: 'Taal', icon: const Icon(Icons.language, size: 23),
+            onSelected: (v) => _selectLanguage(v),
+            itemBuilder: (_) => _languages.entries.map((e) => PopupMenuItem<String>(
+              value: e.key, child: Text((_language == e.key ? '✓  ' : '') + e.value),
+            )).toList(),
+          ),
+          PopupMenuButton<String>(
+            tooltip: 'Persoonlijkheid', icon: const Icon(Icons.theater_comedy_outlined, size: 23),
+            onSelected: (v) async {
+              if (_processing || _speaking) return;
+              if (v == 'custom') {
+                final editor = TextEditingController(text: _customPrompt);
+                final result = await showDialog<String>(context: context, builder: (ctx) => AlertDialog(
+                  title: const Text('Eigen prompt'),
+                  content: TextField(controller: editor, minLines: 4, maxLines: 8),
+                  actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuleren')),
+                    TextButton(onPressed: () => Navigator.pop(ctx, editor.text), child: const Text('Opslaan'))],
+                ));
+                editor.dispose();
+                if (!mounted || result == null) return;
+                setState(() { _customPrompt = result; _personality = 'custom'; });
+              } else { setState(() => _personality = v); }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'default', child: Text('Standaard')),
+              PopupMenuItem(value: 'unhinged', child: Text('Unhinged')),
+              PopupMenuItem(value: 'custom', child: Text('Eigen prompt')),
+            ],
+          ),
+          const SizedBox(width: 4),
         ],
         leading: IconButton(
           icon: const Icon(Icons.close),
