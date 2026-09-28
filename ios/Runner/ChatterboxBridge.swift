@@ -10,6 +10,7 @@ final class ChatterboxBridge {
     private var model: ChatterboxCoreMLModel?
     private var player: AVAudioPlayer?
     private var busy = false
+    private var operation = "idle"
     private let repo = ModelRepository.Variant.multilingual
 
     private var home: URL {
@@ -21,10 +22,11 @@ final class ChatterboxBridge {
         switch call.method {
         case "status":
             let dir = ModelRepository.existingModelDirectory(hfHome: home, repoId: repo.repoId)
-            result(["downloaded": dir != nil, "loaded": model != nil, "busy": busy])
+            result(["downloaded": dir != nil, "loaded": model != nil, "busy": busy, "operation": operation])
         case "download":
             guard !busy else { result(FlutterError(code: "busy", message: "Chatterbox is busy", details: nil)); return }
             busy = true
+            operation = "download"
             Task {
                 do {
                     try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
@@ -35,15 +37,18 @@ final class ChatterboxBridge {
                             userInfo: [NSLocalizedDescriptionKey: "Incomplete download. Retry."])
                     }
                     busy = false
+                    operation = "idle"
                     result(true)
                 } catch {
                     busy = false
+                    operation = "idle"
                     result(FlutterError(code: "download", message: error.localizedDescription, details: nil))
                 }
             }
         case "load":
             guard !busy else { result(FlutterError(code: "busy", message: "Chatterbox is busy", details: nil)); return }
             busy = true
+            operation = "load"
             Task {
                 do {
                     guard let dir = ModelRepository.existingModelDirectory(hfHome: home, repoId: repo.repoId) else {
@@ -55,6 +60,7 @@ final class ChatterboxBridge {
                 } catch {
                     model = nil
                     busy = false
+                    operation = "idle"
                     result(FlutterError(code: "load", message: error.localizedDescription, details: nil))
                 }
             }
@@ -71,6 +77,7 @@ final class ChatterboxBridge {
             }
             let exaggeration = (args["exaggeration"] as? Double ?? 0.7).clamped(to: 0.25...1.5)
             busy = true
+            operation = "speak"
             Task {
                 do {
                     let options = GenerationOptions.multilingual(
@@ -93,6 +100,7 @@ final class ChatterboxBridge {
                     result(true)
                 } catch {
                     busy = false
+                    operation = "idle"
                     result(FlutterError(code: "speak", message: error.localizedDescription, details: nil))
                 }
             }
