@@ -26,7 +26,6 @@ final class ChatterboxBridge {
             guard !busy else { result(FlutterError(code: "busy", message: "Chatterbox is busy", details: nil)); return }
             busy = true
             Task {
-                defer { busy = false }
                 do {
                     try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
                     let snapshot = try await ModelRepository.download(
@@ -35,8 +34,10 @@ final class ChatterboxBridge {
                         throw NSError(domain: "Chatterbox", code: 1,
                             userInfo: [NSLocalizedDescriptionKey: "Incomplete download. Retry."])
                     }
+                    busy = false
                     result(true)
                 } catch {
+                    busy = false
                     result(FlutterError(code: "download", message: error.localizedDescription, details: nil))
                 }
             }
@@ -44,7 +45,6 @@ final class ChatterboxBridge {
             guard !busy else { result(FlutterError(code: "busy", message: "Chatterbox is busy", details: nil)); return }
             busy = true
             Task {
-                defer { busy = false }
                 do {
                     guard let dir = ModelRepository.existingModelDirectory(hfHome: home, repoId: repo.repoId) else {
                         throw NSError(domain: "Chatterbox", code: 2,
@@ -54,6 +54,7 @@ final class ChatterboxBridge {
                     result(true)
                 } catch {
                     model = nil
+                    busy = false
                     result(FlutterError(code: "load", message: error.localizedDescription, details: nil))
                 }
             }
@@ -71,7 +72,6 @@ final class ChatterboxBridge {
             let exaggeration = (args["exaggeration"] as? Double ?? 0.7).clamped(to: 0.25...1.5)
             busy = true
             Task {
-                defer { busy = false }
                 do {
                     let options = GenerationOptions.multilingual(
                         language: language, exaggeration: Float(exaggeration), cfgWeight: 0.5)
@@ -92,6 +92,7 @@ final class ChatterboxBridge {
                     }
                     result(true)
                 } catch {
+                    busy = false
                     result(FlutterError(code: "speak", message: error.localizedDescription, details: nil))
                 }
             }
