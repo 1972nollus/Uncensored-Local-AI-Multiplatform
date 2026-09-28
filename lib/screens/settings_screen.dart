@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -1098,11 +1099,22 @@ class _ChatterboxSettingsCardState extends State<_ChatterboxSettingsCard> {
   final _service = ChatterboxService();
   bool _enabled = false, _downloaded = false, _loaded = false, _busy = false;
   bool _nativeBusy = false;
+  String _operation = 'idle';
+  Timer? _statusTimer;
   String _profile = 'expressive';
   String? _error;
 
   @override
-  void initState() { super.initState(); _refresh(); }
+  void initState() {
+    super.initState();
+    _refresh();
+    _statusTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      if (mounted && !_busy) _refresh();
+    });
+  }
+
+  @override
+  void dispose() { _statusTimer?.cancel(); super.dispose(); }
 
   Future<void> _refresh() async {
     try {
@@ -1112,6 +1124,7 @@ class _ChatterboxSettingsCardState extends State<_ChatterboxSettingsCard> {
         _downloaded = status['downloaded'] == true;
         _loaded = status['loaded'] == true;
         _nativeBusy = status['busy'] == true;
+        _operation = (status['operation'] ?? 'idle').toString();
         _enabled = Hive.box('settings').get('chatterbox_enabled', defaultValue: false) == true;
         _profile = Hive.box('settings').get('chatterbox_profile', defaultValue: 'expressive') as String;
       });
@@ -1176,7 +1189,13 @@ class _ChatterboxSettingsCardState extends State<_ChatterboxSettingsCard> {
       if (_busy || _nativeBusy) ...[
         const LinearProgressIndicator(),
         const SizedBox(height: 6),
-        const Text('Chatterbox is bezig. Voortgangspercentage nog niet beschikbaar.'),
+        Text(_operation == 'load'
+          ? 'Chatterbox wordt geladen. Dit kan veel geheugen gebruiken en enige tijd duren.'
+          : _operation == 'download'
+            ? 'Stempakket downloaden. Een percentage is nog niet beschikbaar.'
+            : _operation == 'speak'
+              ? 'Chatterbox genereert momenteel spraak.'
+              : 'Chatterbox is bezig. Status wordt automatisch vernieuwd.'),
       ],
       if (!_downloaded)
         TextButton.icon(onPressed: _busy || _nativeBusy ? null : _download,
