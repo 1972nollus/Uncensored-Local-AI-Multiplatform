@@ -134,7 +134,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
               : 'Hello! This is my new voice. What shall we discuss?');
           }, icon: const Icon(Icons.play_arrow), label: const Text('Stem beluisteren')),
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Sluiten')),
-        ]))),
+        ])))),
     );
   }
   static const _languages = <String, String>{'auto':'Automatisch (iPhone)', 'nl_NL':'Nederlands', 'en_US':'English', 'de_DE':'Deutsch', 'fr_FR':'Français', 'es_ES':'Español'};
