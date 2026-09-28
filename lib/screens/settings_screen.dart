@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import '../services/chatterbox_service.dart';
 
 import '../theme/app_colors.dart';
 import '../controllers/chat_controller.dart';
@@ -158,6 +160,14 @@ class _SettingsBody extends StatelessWidget {
               ],
 
               const SizedBox(height: 28),
+
+              // ── Offline speech ────────────────────────────
+              if (Platform.isIOS) ...[
+                _sectionHeader(context, 'Offline AI-stemmen'),
+                const SizedBox(height: 8),
+                const _ChatterboxSettingsCard(),
+                const SizedBox(height: 28),
+              ],
 
               // ── System Prompt ─────────────────────────────
               _sectionHeader(context, 'Global System Prompt'),
@@ -1074,3 +1084,93 @@ class _HardwareSettingsCardState extends State<_HardwareSettingsCard> {
   }
 }
 
+
+
+/// Persistent on-device Chatterbox preferences and model management.
+class _ChatterboxSettingsCard extends StatefulWidget {
+  const _ChatterboxSettingsCard();
+  @override
+  State<_ChatterboxSettingsCard> createState() => _ChatterboxSettingsCardState();
+}
+
+class _ChatterboxSettingsCardState extends State<_ChatterboxSettingsCard> {
+  final _service = ChatterboxService();
+  bool _enabled = false;
+  bool _downloaded = false;
+  bool _loaded = false;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void initState() { super.initState(); _refresh(); }
+
+  Future<void> _refresh() async {
+    try {
+      final status = await _service.status();
+      if (!mounted) return;
+      setState(() {
+        _downloaded = status['downloaded'] == true;
+        _loaded = status['loaded'] == true;
+        _enabled = Hive.box('settings').get('chatterbox_enabled', defaultValue: false) == true;
+      });
+    } catch (e) { if (mounted) setState(() => _error = e.toString()); }
+  }
+
+  Future<void> _toggle(bool enabled) async {
+    if (_busy) return;
+    if (enabled && !_downloaded) {
+      setState(() => _error = 'Download eerst het meertalige stempakket.');
+      return;
+    }
+    setState(() { _busy = true; _error = null; });
+    try {
+      if (enabled && !_loaded) await _service.load();
+      if (!enabled && _loaded) await _service.unload();
+      await Hive.box('settings').put('chatterbox_enabled', enabled);
+      if (mounted) setState(() { _enabled = enabled; _loaded = enabled; });
+    } catch (e) { if (mounted) setState(() => _error = e.toString()); }
+    finally { if (mounted) setState(() => _busy = false); }
+  }
+
+  Future<void> _download() async {
+    if (_busy) return;
+    setState(() { _busy = true; _error = null; });
+    try { await _service.download(); await _refresh(); }
+    catch (e) { if (mounted) setState(() => _error = e.toString()); }
+    finally { if (mounted) setState(() => _busy = false); }
+  }
+
+  @override
+  Widget build(BuildContext context) => Card(child: Padding(
+    padding: const EdgeInsets.all(12),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        title: const Text('Chatterbox (lokaal)'),
+        subtitle: const Text('Expressieve spraak op je iPhone, zonder cloud.'),
+        value: _enabled, onChanged: _busy ? null : _toggle,
+      ),
+      if (_busy) ...[
+        const LinearProgressIndicator(),
+        const SizedBox(height: 6),
+        const Text('Bezig… De downloadengine geeft nog geen percentage door.'),
+      ],
+      if (!_downloaded)
+        TextButton.icon(onPressed: _busy ? null : _download,
+          icon: const Icon(Icons.download), label: const Text('Download meertalig stempakket')),
+      if (_downloaded) ...[
+        const Divider(),
+        const Text('Gedownloade stempakketten', style: TextStyle(fontWeight: FontWeight.bold)),
+        ListTile(contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.record_voice_over),
+          title: const Text('Chatterbox Multilingual'),
+          subtitle: Text(_loaded ? 'Geladen · meerdere talen, waaronder Nederlands'
+            : 'Gedownload · nog niet geladen'),
+          trailing: const Icon(Icons.check_circle, color: Colors.green)),
+        const Text('Dit is één meertalig model. Afzonderlijk downloadbare stemmen zijn nog niet beschikbaar.'),
+      ],
+      if (_error != null) Padding(padding: const EdgeInsets.only(top: 8),
+        child: Text(_error!, style: const TextStyle(color: Colors.red))),
+    ]),
+  ));
+}
