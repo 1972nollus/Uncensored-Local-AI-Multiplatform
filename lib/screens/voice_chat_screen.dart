@@ -35,6 +35,65 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
   String _language = 'nl_NL';
   String _personality = 'default';
   String _customPrompt = '';
+  String _voiceStyle = 'expressive';
+  String? _voiceId;
+  List<Map<String,String>> _voices = [];
+  Future<void> _configureVoice() async {
+    final locale = _selectedLocale.replaceAll('_', '-');
+    await _tts.setLanguage(locale);
+    switch (_voiceStyle) {
+      case 'energetic': await _tts.setSpeechRate(0.57); await _tts.setPitch(1.14); break;
+      case 'calm': await _tts.setSpeechRate(0.43); await _tts.setPitch(0.96); break;
+      case 'expressive': await _tts.setSpeechRate(0.51); await _tts.setPitch(1.07); break;
+      default: await _tts.setSpeechRate(0.48); await _tts.setPitch(1.0);
+    }
+    if (_voiceId != null) await _tts.setVoice({'identifier': _voiceId!});
+  }
+  Future<void> _voiceSettings() async {
+    await _speech.stop();
+    if (mounted) setState(() => _listening = false);
+    try {
+      final raw = await _tts.getVoices;
+      final locale = _selectedLocale.replaceAll('_', '-').toLowerCase();
+      if (raw is List) {
+        _voices = raw.whereType<Map>().where((v) =>
+          (v['locale'] ?? '').toString().replaceAll('_', '-').toLowerCase() == locale
+          && (v['identifier'] ?? '').toString().isNotEmpty).map((v) =>
+          {'id': v['identifier'].toString(), 'name': (v['name'] ?? v['identifier']).toString()}).toList();
+      }
+    } catch (_) {}
+    if (!mounted) return;
+    await showModalBottomSheet<void>(context: context, isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, refresh) => SafeArea(
+        child: Padding(padding: const EdgeInsets.all(20), child: Column(
+          mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Steminstellingen', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          DropdownButton<String>(value: _voiceStyle, isExpanded: true, items: const [
+            DropdownMenuItem(value: 'natural', child: Text('Natuurlijk')),
+            DropdownMenuItem(value: 'expressive', child: Text('Expressief')),
+            DropdownMenuItem(value: 'energetic', child: Text('Energiek')),
+            DropdownMenuItem(value: 'calm', child: Text('Rustig')),
+          ], onChanged: (v) async { if (v == null) return; refresh(() => _voiceStyle = v); await _configureVoice(); }),
+          DropdownButton<String>(value: _voiceId, isExpanded: true, hint: const Text('Automatische iPhone-stem'),
+            items: [const DropdownMenuItem<String>(value: null, child: Text('Automatische iPhone-stem')),
+              ..._voices.map((v) => DropdownMenuItem<String>(value: v['id'], child: Text(v['name']!)))],
+            onChanged: (v) async { refresh(() => _voiceId = v);
+              if (v == null) await _tts.clearVoice(); await _configureVoice(); }),
+          const Text('Offline: tempo en toonhoogte. Echte emotionele spraak vereist een aparte stemengine.',
+            style: TextStyle(fontSize: 12)),
+          const SizedBox(height: 12),
+          FilledButton.icon(onPressed: () async {
+            await _configureVoice();
+            await _tts.speak(_selectedLocale == 'nl_NL'
+              ? 'Hallo! Dit is mijn nieuwe stem. Wat zullen we bespreken?'
+              : 'Hello! This is my new voice. What shall we discuss?');
+          }, icon: const Icon(Icons.play_arrow), label: const Text('Stem beluisteren')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Sluiten')),
+        ]))),
+      )),
+    );
+  }
   static const _languages = <String, String>{'auto':'Automatisch (iPhone)', 'nl_NL':'Nederlands', 'en_US':'English', 'de_DE':'Deutsch', 'fr_FR':'Français', 'es_ES':'Español'};
   String get _selectedLocale {
     if (_language != 'auto') return _language;
@@ -71,7 +130,11 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
     if (!mounted) return;
     setState(() { _language = value; _listening = false; _status = 'Taal gewijzigd. Tik om te spreken.'; });
     final locale = _selectedLocale.replaceAll('_', '-');
-    if (await _tts.isLanguageAvailable(locale) == true) await _tts.setLanguage(locale);
+    if (await _tts.isLanguageAvailable(locale) == true) {
+      _voiceId = null;
+      await _tts.clearVoice();
+      await _configureVoice();
+    }
   }
 
   @override
@@ -82,7 +145,8 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
       duration: const Duration(milliseconds: 1250),
     )..repeat(reverse: true);
     _tts.setLanguage('nl-NL');
-    _tts.setSpeechRate(0.48);
+    _tts.setSpeechRate(0.51);
+    _tts.setPitch(1.07);
     _tts.awaitSpeakCompletion(true);
     WidgetsBinding.instance.addPostFrameCallback((_) => _listen());
   }
@@ -167,6 +231,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
         return;
       }
       setState(() { _reply = answer; _speaking = true; _status = 'AI spreekt...'; });
+      await _configureVoice();
       await _tts.speak(answer);
     } catch (e) {
       if (mounted) setState(() => _status = 'Fout: $e');
@@ -212,6 +277,8 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
         title: const Text('Live spraak', style: TextStyle(fontSize: 18)),
         titleSpacing: 0,
         actions: [
+          IconButton(icon: const Icon(Icons.record_voice_over_outlined, size: 23),
+            tooltip: 'Steminstellingen', onPressed: _voiceSettings),
           PopupMenuButton<String>(
             tooltip: 'Taal', icon: const Icon(Icons.language, size: 23),
             onSelected: (v) => _selectLanguage(v),
