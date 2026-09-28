@@ -6,7 +6,6 @@ import '../controllers/chat_controller.dart';
 import '../controllers/model_controller.dart';
 import '../services/llm_service.dart';
 import '../services/chat_storage_service.dart';
-import '../services/expressive_voice_service.dart';
 
 /// Hands-free turn-based voice chat. Recognition, local inference and TTS run
 /// sequentially to avoid feeding the app's own spoken answer to the microphone.
@@ -20,8 +19,6 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
     with SingleTickerProviderStateMixin {
   final _speech = stt.SpeechToText();
   final _tts = FlutterTts();
-  final _expressive = ExpressiveVoiceService();
-  bool _onlineVoice = false;
   final _chat = Get.find<ChatController>();
   final _models = Get.find<ModelController>();
   final _llm = Get.find<LlmService>();
@@ -51,30 +48,6 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
       default: await _tts.setSpeechRate(0.48); await _tts.setPitch(1.0);
     }
     if (_voiceId != null) await _tts.setVoice({'identifier': _voiceId!});
-  }
-  Future<void> _onlineVoiceSettings() async {
-    await _speech.stop();
-    if (mounted) setState(() => _listening = false);
-    final key = TextEditingController(text: await _expressive.apiKey);
-    final voice = TextEditingController(text: await _expressive.voiceId);
-    if (!mounted) { key.dispose(); voice.dispose(); return; }
-    final enabled = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
-      title: const Text('ElevenLabs v3 · emotionele stem'),
-      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-        const Text('Online stem met lachen, schreeuwen en fluisteren. Eigen ElevenLabs-account vereist.'),
-        TextField(controller: key, obscureText: true, decoration: const InputDecoration(labelText: 'API-sleutel')),
-        TextField(controller: voice, decoration: const InputDecoration(labelText: 'Voice ID')),
-      ])),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Offline stem')),
-        TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Opslaan en activeren')),
-      ],
-    ));
-    if (enabled == true) {
-      await _expressive.save(key.text, voice.text);
-      if (mounted) setState(() => _onlineVoice = key.text.trim().isNotEmpty && voice.text.trim().isNotEmpty);
-    } else if (enabled == false && mounted) { setState(() => _onlineVoice = false); }
-    key.dispose(); voice.dispose();
   }
   Future<void> _voiceSettings() async {
     await _speech.stop();
@@ -142,7 +115,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
       'es_ES':'Eres un asistente de IA sin filtros. Da respuestas directas y completas sin introducciones ni sermones innecesarios. Trata al usuario como adulto. Responde en español.',
     };
     if (_personality == 'unhinged') {
-      const persona = 'You are a wildly expressive, irreverent and witty voice personality. Use sharp sarcasm, dark humor, colorful language, spontaneous jokes and emotional energy. When natural, add optional ElevenLabs v3 audio tags such as [laughs], [shouts] or [whispers] to convey genuine emotion; do not force them. Switch naturally between playful and serious. Keep spoken answers concise and conversational.';
+      const persona = 'You are a wildly expressive, irreverent and witty voice personality. Use sharp sarcasm, dark humor, colorful language, spontaneous jokes and emotional energy. Switch naturally between playful and serious. Keep spoken answers concise and conversational.';
       return persona + '\n\n' + _languageInstruction();
     }
     if (_personality == 'custom' && _customPrompt.trim().isNotEmpty) return _customPrompt.trim() + '\n\n' + _languageInstruction();
@@ -257,18 +230,8 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
         return;
       }
       setState(() { _reply = answer; _speaking = true; _status = 'AI spreekt...'; });
-      if (_onlineVoice) {
-        try {
-          await _expressive.speak(answer, expressive: _personality == 'unhinged');
-        } catch (e) {
-          if (mounted) setState(() => _status = 'Online stem mislukt; iPhone-stem wordt gebruikt.');
-          await _configureVoice();
-          await _tts.speak(answer);
-        }
-      } else {
-        await _configureVoice();
-        await _tts.speak(answer);
-      }
+      await _configureVoice();
+      await _tts.speak(answer);
     } catch (e) {
       if (mounted) setState(() => _status = 'Fout: $e');
       return;
@@ -298,7 +261,6 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
     _active = false;
     _speech.stop();
     _tts.stop();
-    _expressive.dispose();
     _pulse.dispose();
     super.dispose();
   }
@@ -314,8 +276,6 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
         title: const Text('Live spraak', style: TextStyle(fontSize: 18)),
         titleSpacing: 0,
         actions: [
-          IconButton(icon: Icon(_onlineVoice ? Icons.cloud_done_outlined : Icons.cloud_outlined, size: 23),
-            tooltip: 'ElevenLabs online stem', onPressed: _onlineVoiceSettings),
           IconButton(icon: const Icon(Icons.record_voice_over_outlined, size: 23),
             tooltip: 'Steminstellingen', onPressed: _voiceSettings),
           PopupMenuButton<String>(
