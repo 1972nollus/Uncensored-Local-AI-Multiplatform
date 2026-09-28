@@ -6,6 +6,7 @@ import '../controllers/chat_controller.dart';
 import '../controllers/model_controller.dart';
 import '../services/llm_service.dart';
 import '../services/chat_storage_service.dart';
+import '../services/chatterbox_service.dart';
 
 /// Hands-free turn-based voice chat. Recognition, local inference and TTS run
 /// sequentially to avoid feeding the app's own spoken answer to the microphone.
@@ -19,6 +20,9 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
     with SingleTickerProviderStateMixin {
   final _speech = stt.SpeechToText();
   final _tts = FlutterTts();
+  final _chatterbox = ChatterboxService();
+  bool _useChatterbox = false;
+  bool _chatterboxBusy = false;
   final _chat = Get.find<ChatController>();
   final _models = Get.find<ModelController>();
   final _llm = Get.find<LlmService>();
@@ -48,6 +52,46 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
       default: await _tts.setSpeechRate(0.48); await _tts.setPitch(1.0);
     }
     if (_voiceId != null) await _tts.setVoice({'identifier': _voiceId!});
+  }
+  Future<void> _chatterboxSettings() async {
+    if (!_chatterbox.supported || _processing || _speaking || _chatterboxBusy) return;
+    await _speech.stop();
+    if (mounted) setState(() => _listening = false);
+    Map<String, dynamic> status;
+    try { status = await _chatterbox.status(); }
+    catch (e) { if (mounted) setState(() => _status = 'Chatterbox: $e'); return; }
+    if (!mounted) return;
+    final action = await showDialog<String>(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('Chatterbox · offline AI-stem'),
+      content: Text(status['loaded'] == true
+        ? 'Model is geladen. Expressieve Nederlandse en meertalige spraak werkt lokaal.'
+        : status['downloaded'] == true
+          ? 'Het stempakket is gedownload. Laden kan veel geheugen gebruiken naast het taalmodel.'
+          : 'Download een groot meertalig CoreML-stempakket. Daarna werkt het zonder internet. Op oudere iPhones kan het geheugen tekortschieten.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, 'ios'), child: const Text('iPhone-stem')),
+        if (status['downloaded'] != true)
+          TextButton(onPressed: () => Navigator.pop(ctx, 'download'), child: const Text('Downloaden')),
+        if (status['downloaded'] == true && status['loaded'] != true)
+          TextButton(onPressed: () => Navigator.pop(ctx, 'load'), child: const Text('Laden')),
+        if (status['loaded'] == true)
+          TextButton(onPressed: () => Navigator.pop(ctx, 'enable'), child: const Text('Chatterbox gebruiken')),
+      ],
+    ));
+    if (!mounted || action == null) return;
+    if (action == 'ios') { setState(() => _useChatterbox = false); return; }
+    if (action == 'enable') { setState(() => _useChatterbox = true); return; }
+    setState(() { _chatterboxBusy = true; _status = action == 'download'
+      ? 'Chatterbox wordt gedownload. Dit kan even duren...' : 'Chatterbox laden...'; });
+    try {
+      if (action == 'download') await _chatterbox.download();
+      if (action == 'load') { await _chatterbox.load(); _useChatterbox = true; }
+      if (mounted) setState(() => _status = action == 'download'
+        ? 'Chatterbox gedownload. Open het stemmenu om te laden.'
+        : 'Chatterbox actief. Tik om te spreken.');
+    } catch (e) {
+      if (mounted) setState(() { _useChatterbox = false; _status = 'Chatterbox: $e'; });
+    } finally { if (mounted) setState(() => _chatterboxBusy = false); }
   }
   Future<void> _voiceSettings() async {
     await _speech.stop();
@@ -230,8 +274,21 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
         return;
       }
       setState(() { _reply = answer; _speaking = true; _status = 'AI spreekt...'; });
-      await _configureVoice();
-      await _tts.speak(answer);
+      if (_useChatterbox) {
+        try {
+          final lang = _selectedLocale.split('_').first;
+          await _chatterbox.speak(answer, language: lang,
+            exaggeration: _voiceStyle == 'energetic' ? 1.1 :
+              _voiceStyle == 'calm' ? 0.4 : 0.7);
+        } catch (e) {
+          if (mounted) setState(() { _useChatterbox = false; _status = 'Chatterbox mislukt; iPhone-stem actief.'; });
+          await _configureVoice();
+          await _tts.speak(answer);
+        }
+      } else {
+        await _configureVoice();
+        await _tts.speak(answer);
+      }
     } catch (e) {
       if (mounted) setState(() => _status = 'Fout: $e');
       return;
@@ -261,6 +318,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
     _active = false;
     _speech.stop();
     _tts.stop();
+    _chatterbox.stop();
     _pulse.dispose();
     super.dispose();
   }
@@ -276,6 +334,9 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
         title: const Text('Live spraak', style: TextStyle(fontSize: 18)),
         titleSpacing: 0,
         actions: [
+          if (_chatterbox.supported) IconButton(
+            icon: Icon(_useChatterbox ? Icons.spatial_audio : Icons.spatial_audio_off, size: 23),
+            tooltip: 'Chatterbox offline stem', onPressed: _chatterboxBusy ? null : _chatterboxSettings),
           IconButton(icon: const Icon(Icons.record_voice_over_outlined, size: 23),
             tooltip: 'Steminstellingen', onPressed: _voiceSettings),
           PopupMenuButton<String>(
