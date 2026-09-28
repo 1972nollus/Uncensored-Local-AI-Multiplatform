@@ -30,8 +30,9 @@ class ExpressiveVoiceService {
       throw StateError('ElevenLabs HTTP ${response.statusCode}: ${utf8.decode(response.bodyBytes).substring(0, utf8.decode(response.bodyBytes).length.clamp(0, 200))}');
     }
     await _player.stop();
+    final completed = _player.onPlayerComplete.first.timeout(const Duration(minutes: 5));
     await _player.play(BytesSource(response.bodyBytes));
-    await _player.onPlayerComplete.first.timeout(const Duration(minutes: 5));
+    await completed;
   }
   String _expressiveText(String text) {
     // Preserve the LLM's own emotion tags; do not force laughter into every reply.
