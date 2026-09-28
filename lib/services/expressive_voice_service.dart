@@ -27,7 +27,7 @@ class ExpressiveVoiceService {
         'voice_settings': {'stability': 0.5}}),
     ).timeout(const Duration(seconds: 90));
     if (response.statusCode != 200) {
-      throw StateError('ElevenLabs HTTP ${response.statusCode}: ${utf8.decode(response.bodyBytes).substring(0, response.bodyBytes.length.clamp(0, 200))}');
+      throw StateError('ElevenLabs HTTP ${response.statusCode}: ${utf8.decode(response.bodyBytes).substring(0, utf8.decode(response.bodyBytes).length.clamp(0, 200))}');
     }
     await _player.stop();
     await _player.play(BytesSource(response.bodyBytes));
