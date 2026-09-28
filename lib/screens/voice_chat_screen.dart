@@ -247,9 +247,10 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
       if (_useChatterbox) {
         try {
           final lang = _selectedLocale.split('_').first;
+          final profile = Hive.box('settings').get('chatterbox_profile', defaultValue: 'expressive');
           await _chatterbox.speak(answer, language: lang,
-            exaggeration: _voiceStyle == 'energetic' ? 1.1 :
-              _voiceStyle == 'calm' ? 0.4 : 0.7);
+            exaggeration: profile == 'energetic' ? 1.1 :
+              profile == 'calm' ? 0.4 : profile == 'natural' ? 0.5 : 0.7);
         } catch (e) {
           if (mounted) setState(() { _useChatterbox = false; _status = 'Chatterbox mislukt; iPhone-stem actief.'; });
           await _configureVoice();
