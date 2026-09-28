@@ -156,8 +156,9 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
       if (enabled && _chatterbox.supported) {
         try {
           final status = await _chatterbox.status();
-          if (status['downloaded'] == true && status['loaded'] != true) await _chatterbox.load();
-          if (mounted) setState(() => _useChatterbox = status['downloaded'] == true);
+          // Loading is controlled exclusively from Settings to prevent
+          // simultaneous CoreML loads and unresponsive voice chat startup.
+          if (mounted) setState(() => _useChatterbox = status['loaded'] == true);
         } catch (_) { if (mounted) setState(() => _useChatterbox = false); }
       }
       if (mounted) await _listen();
