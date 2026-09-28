@@ -12,5 +12,11 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "ChatterboxBridge") {
+      let channel = FlutterMethodChannel(name: "portable_ai/chatterbox", binaryMessenger: registrar.messenger())
+      channel.setMethodCallHandler { call, result in
+        Task { @MainActor in ChatterboxBridge.shared.handle(call, result: result) }
+      }
+    }
   }
 }
