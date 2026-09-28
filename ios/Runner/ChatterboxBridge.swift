@@ -74,7 +74,7 @@ final class ChatterboxBridge {
                 defer { busy = false }
                 do {
                     let options = GenerationOptions.multilingual(
-                        language: language, exaggeration: exaggeration, cfgWeight: 0.5)
+                        language: language, exaggeration: Float(exaggeration), cfgWeight: 0.5)
                     let audio = try await model.generate(text, options: options)
                     let file = FileManager.default.temporaryDirectory
                         .appendingPathComponent("chatterbox-preview.caf")
