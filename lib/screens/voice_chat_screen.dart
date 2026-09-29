@@ -7,7 +7,6 @@ import '../controllers/chat_controller.dart';
 import '../controllers/model_controller.dart';
 import '../services/llm_service.dart';
 import '../services/chat_storage_service.dart';
-import '../services/chatterbox_service.dart';
 
 /// Hands-free turn-based voice chat. Recognition, local inference and TTS run
 /// sequentially to avoid feeding the app's own spoken answer to the microphone.
@@ -21,8 +20,6 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
     with SingleTickerProviderStateMixin {
   final _speech = stt.SpeechToText();
   final _tts = FlutterTts();
-  final _chatterbox = ChatterboxService();
-  bool _useChatterbox = false;
   final _chat = Get.find<ChatController>();
   final _models = Get.find<ModelController>();
   final _llm = Get.find<LlmService>();
@@ -97,13 +94,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
         ])))),
     );
   }
-  static const _languages = <String, String>{'auto':'Automatisch (iPhone)', 'nl_NL':'Nederlands', 'en_US':'English', 'de_DE':'Deutsch', 'fr_FR':'Français', 'es_ES':'Español'};
-  String get _selectedLocale {
-    if (_language != 'auto') return _language;
-    final code = WidgetsBinding.instance.platformDispatcher.locale.languageCode;
-    for (final locale in _languages.keys) { if (locale.startsWith(code + '_')) return locale; }
-    return 'en_US';
-  }
+  String get _selectedLocale => _language;
   String _languageInstruction() {
     const names = <String,String>{'nl_NL':'Dutch','en_US':'English','de_DE':'German','fr_FR':'French','es_ES':'Spanish'};
     return 'Respond in ' + (names[_selectedLocale] ?? 'English') + '.';
@@ -151,20 +142,15 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
       vsync: this,
       duration: const Duration(milliseconds: 1250),
     )..repeat(reverse: true);
-    _tts.setLanguage('nl-NL');
+    final settings = Hive.box('settings');
+    _language = settings.get('conversation_language', defaultValue: 'nl_NL') as String;
+    _personality = settings.get('conversation_character', defaultValue: 'default') as String;
+    _customPrompt = settings.get('conversation_custom_prompt', defaultValue: '') as String;
+    _tts.setLanguage(_selectedLocale.replaceAll('_', '-'));
     _tts.setSpeechRate(0.51);
     _tts.setPitch(1.07);
     _tts.awaitSpeakCompletion(true);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final enabled = Hive.box('settings').get('chatterbox_enabled', defaultValue: false) == true;
-      if (enabled && _chatterbox.supported) {
-        try {
-          final status = await _chatterbox.status();
-          // Loading is controlled exclusively from Settings to prevent
-          // simultaneous CoreML loads and unresponsive voice chat startup.
-          if (mounted) setState(() => _useChatterbox = status['loaded'] == true);
-        } catch (_) { if (mounted) setState(() => _useChatterbox = false); }
-      }
       if (mounted) await _listen();
     });
   }
@@ -249,22 +235,8 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
         return;
       }
       setState(() { _reply = answer; _speaking = true; _status = 'AI spreekt...'; });
-      if (_useChatterbox) {
-        try {
-          final lang = _selectedLocale.split('_').first;
-          final profile = Hive.box('settings').get('chatterbox_profile', defaultValue: 'expressive');
-          await _chatterbox.speak(answer, language: lang,
-            exaggeration: profile == 'energetic' ? 1.1 :
-              profile == 'calm' ? 0.4 : profile == 'natural' ? 0.5 : 0.7);
-        } catch (e) {
-          if (mounted) setState(() { _useChatterbox = false; _status = 'Chatterbox mislukt; iPhone-stem actief.'; });
-          await _configureVoice();
-          await _tts.speak(answer);
-        }
-      } else {
-        await _configureVoice();
-        await _tts.speak(answer);
-      }
+      await _configureVoice();
+      await _tts.speak(answer);
     } catch (e) {
       if (mounted) setState(() => _status = 'Fout: $e');
       return;
@@ -294,8 +266,6 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
     _active = false;
     _speech.stop();
     _tts.stop();
-    _chatterbox.stop();
-    _chatterbox.unload();
     _pulse.dispose();
     super.dispose();
   }
@@ -313,39 +283,6 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
         actions: [
           IconButton(icon: const Icon(Icons.record_voice_over_outlined, size: 23),
             tooltip: 'Steminstellingen', onPressed: _voiceSettings),
-          PopupMenuButton<String>(
-            tooltip: 'Taal', icon: const Icon(Icons.language, size: 23),
-            onSelected: (v) => _selectLanguage(v),
-            itemBuilder: (_) => _languages.entries.map((e) => PopupMenuItem<String>(
-              value: e.key, child: Text((_language == e.key ? '✓  ' : '') + e.value),
-            )).toList(),
-          ),
-          PopupMenuButton<String>(
-            tooltip: 'Personage', icon: const Icon(Icons.theater_comedy_outlined, size: 23),
-            onSelected: (v) async {
-              if (_processing || _speaking) return;
-              if (v == 'custom') {
-                final editor = TextEditingController(text: _customPrompt);
-                final result = await showDialog<String>(context: context, builder: (ctx) => AlertDialog(
-                  title: const Text('Eigen prompt'),
-                  content: TextField(controller: editor, minLines: 4, maxLines: 8),
-                  actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuleren')),
-                    TextButton(onPressed: () => Navigator.pop(ctx, editor.text), child: const Text('Opslaan'))],
-                ));
-                editor.dispose();
-                if (!mounted || result == null) return;
-                setState(() { _customPrompt = result; _personality = 'custom'; });
-              } else { setState(() => _personality = v); }
-            },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'default', child: Text('Assistent')),
-              PopupMenuItem(value: 'unhinged', child: Text('Unhinged')),
-              PopupMenuItem(value: 'sexy', child: Text('Sexy')),
-              PopupMenuItem(value: 'conspiracy', child: Text('Conspiracy')),
-              PopupMenuItem(value: 'therapist', child: Text('Therapeut (English)')),
-              PopupMenuItem(value: 'custom', child: Text('Eigen personage')),
-            ],
-          ),
           const SizedBox(width: 4),
         ],
         leading: IconButton(
