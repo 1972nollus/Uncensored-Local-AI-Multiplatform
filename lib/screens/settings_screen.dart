@@ -1,9 +1,7 @@
 import 'dart:io';
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-import '../services/chatterbox_service.dart';
 
 import '../theme/app_colors.dart';
 import '../controllers/chat_controller.dart';
@@ -161,14 +159,6 @@ class _SettingsBody extends StatelessWidget {
               ],
 
               const SizedBox(height: 28),
-
-              // ── Offline speech ────────────────────────────
-              if (Platform.isIOS) ...[
-                _sectionHeader(context, 'Offline AI-stemmen'),
-                const SizedBox(height: 8),
-                const _ChatterboxSettingsCard(),
-                const SizedBox(height: 28),
-              ],
 
               // ── Conversation defaults ───────────────────────
               _sectionHeader(context, 'Conversatie'),
@@ -1092,155 +1082,6 @@ class _HardwareSettingsCardState extends State<_HardwareSettingsCard> {
 }
 
 
-
-/// Offline voice controls; Chatterbox currently provides one multilingual model.
-/// Profiles control expressive generation, not separate downloadable voice identities.
-class _ChatterboxSettingsCard extends StatefulWidget {
-  const _ChatterboxSettingsCard();
-  @override
-  State<_ChatterboxSettingsCard> createState() => _ChatterboxSettingsCardState();
-}
-
-class _ChatterboxSettingsCardState extends State<_ChatterboxSettingsCard> {
-  final _service = ChatterboxService();
-  bool _enabled = false, _downloaded = false, _loaded = false, _busy = false;
-  bool _nativeBusy = false;
-  String _operation = 'idle';
-  Timer? _statusTimer;
-  String _profile = 'expressive';
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _refresh();
-    _statusTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      if (mounted && !_busy) _refresh();
-    });
-  }
-
-  @override
-  void dispose() { _statusTimer?.cancel(); super.dispose(); }
-
-  Future<void> _refresh() async {
-    try {
-      final status = await _service.status();
-      if (!mounted) return;
-      setState(() {
-        _downloaded = status['downloaded'] == true;
-        _loaded = status['loaded'] == true;
-        _nativeBusy = status['busy'] == true;
-        _operation = (status['operation'] ?? 'idle').toString();
-        _enabled = Hive.box('settings').get('chatterbox_enabled', defaultValue: false) == true;
-        _profile = Hive.box('settings').get('chatterbox_profile', defaultValue: 'expressive') as String;
-      });
-    } catch (e) { if (mounted) setState(() => _error = e.toString()); }
-  }
-
-  Future<bool> _ready() async {
-    final status = await _service.status();
-    if (status['busy'] == true) {
-      if (mounted) setState(() => _error =
-        'Chatterbox verwerkt nog een download, laadactie of spraakopdracht. Probeer het straks opnieuw.');
-      return false;
-    }
-    return true;
-  }
-
-  Future<void> _toggle(bool enabled) async {
-    if (_busy) return;
-    if (enabled && !_downloaded) {
-      setState(() => _error = 'Download eerst het meertalige stempakket.');
-      return;
-    }
-    setState(() { _busy = true; _error = null; });
-    try {
-      if (!await _ready()) return;
-      if (enabled && !_loaded) await _service.load();
-      if (!enabled && _loaded) await _service.unload();
-      await Hive.box('settings').put('chatterbox_enabled', enabled);
-      if (mounted) setState(() { _enabled = enabled; _loaded = enabled; });
-    } catch (e) { if (mounted) setState(() => _error = e.toString()); }
-    finally {
-      if (mounted) setState(() => _busy = false);
-      await _refresh();
-    }
-  }
-
-  Future<void> _download() async {
-    if (_busy) return;
-    setState(() { _busy = true; _error = null; });
-    try {
-      if (!await _ready()) return;
-      await _service.download();
-    } catch (e) { if (mounted) setState(() => _error = e.toString()); }
-    finally {
-      if (mounted) setState(() => _busy = false);
-      await _refresh();
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => Card(child: Padding(
-    padding: const EdgeInsets.all(12),
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      SwitchListTile(
-        contentPadding: EdgeInsets.zero,
-        title: const Text('Chatterbox (lokaal)'),
-        subtitle: Text(_loaded ? 'Actief model geladen' :
-          _downloaded ? 'Model gedownload; schakel in om te laden' :
-          'Download het meertalige stempakket'),
-        value: _enabled, onChanged: _busy || _nativeBusy ? null : _toggle,
-      ),
-      if (_busy || _nativeBusy) ...[
-        const LinearProgressIndicator(),
-        const SizedBox(height: 6),
-        Text(_operation == 'load'
-          ? 'Chatterbox wordt geladen. Dit kan veel geheugen gebruiken en enige tijd duren.'
-          : _operation == 'download'
-            ? 'Stempakket downloaden. Een percentage is nog niet beschikbaar.'
-            : _operation == 'speak'
-              ? 'Chatterbox genereert momenteel spraak.'
-              : 'Chatterbox is bezig. Status wordt automatisch vernieuwd.'),
-      ],
-      if (!_downloaded)
-        TextButton.icon(onPressed: _busy || _nativeBusy ? null : _download,
-          icon: const Icon(Icons.download), label: const Text('Download meertalig stempakket')),
-      if (_downloaded) ...[
-        const Divider(),
-        const Text('Gedownloade stempakketten', style: TextStyle(fontWeight: FontWeight.bold)),
-        ListTile(contentPadding: EdgeInsets.zero,
-          leading: const Icon(Icons.record_voice_over),
-          title: const Text('Chatterbox Multilingual'),
-          subtitle: Text(_loaded ? 'Geladen · Nederlands en andere talen' :
-            'Gedownload · nog niet geladen'),
-          trailing: const Icon(Icons.check_circle, color: Colors.green)),
-        const SizedBox(height: 8),
-        const Text('Stemexpressie', style: TextStyle(fontWeight: FontWeight.bold)),
-        DropdownButton<String>(
-          isExpanded: true,
-          value: _profile,
-          items: const [
-            DropdownMenuItem(value: 'natural', child: Text('Natuurlijk')),
-            DropdownMenuItem(value: 'expressive', child: Text('Expressief')),
-            DropdownMenuItem(value: 'energetic', child: Text('Energiek')),
-            DropdownMenuItem(value: 'calm', child: Text('Rustig')),
-          ],
-          onChanged: (v) async {
-            if (v == null) return;
-            await Hive.box('settings').put('chatterbox_profile', v);
-            if (mounted) setState(() => _profile = v);
-          },
-        ),
-        const Text('Dit zijn expressieprofielen van hetzelfde model, geen afzonderlijke stemidentiteiten.'),
-      ],
-      TextButton.icon(onPressed: _busy ? null : _refresh,
-        icon: const Icon(Icons.refresh), label: const Text('Status vernieuwen')),
-      if (_error != null) Padding(padding: const EdgeInsets.only(top: 8),
-        child: Text(_error!, style: const TextStyle(color: Colors.red))),
-    ]),
-  ));
-}
 
 class _ConversationDefaultsCard extends StatefulWidget {
   const _ConversationDefaultsCard();
