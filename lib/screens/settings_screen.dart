@@ -1108,9 +1108,9 @@ class _ConversationDefaultsCardState extends State<_ConversationDefaultsCard> {
   @override
   Widget build(BuildContext context) => Container(
     decoration: BoxDecoration(
-      color: context.bgCard,
-      borderRadius: BorderRadius.circular(12),
+      color: context.bgPanel,
       border: Border.all(color: context.border),
+      borderRadius: BorderRadius.circular(12),
     ),
     child: Padding(
     padding: const EdgeInsets.all(16),
