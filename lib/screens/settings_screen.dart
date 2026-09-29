@@ -1149,6 +1149,32 @@ class _ConversationDefaultsCardState extends State<_ConversationDefaultsCard> {
           onChanged: (v) => Hive.box('settings').put('conversation_custom_prompt', v),
         ),
       ],
+      if (_character != 'custom' && _character != 'default') ...[
+        const SizedBox(height: 8),
+        Row(children: [
+          Expanded(child: OutlinedButton.icon(
+            icon: const Icon(Icons.edit_outlined),
+            label: const Text('Prompt aanpassen'),
+            onPressed: () async {
+              final box = Hive.box('settings');
+              final key = 'prompt_override_${_language}_$_character';
+              final editor = TextEditingController(text: box.get(key, defaultValue: '') as String);
+              final value = await showDialog<String>(context: context, builder: (ctx) => AlertDialog(
+                title: const Text('Aangepaste prompt'),
+                content: TextField(controller: editor, minLines: 7, maxLines: 14,
+                  decoration: const InputDecoration(hintText: 'Leeg = ingebouwde prompt voor deze taal')),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuleren')),
+                  TextButton(onPressed: () => Navigator.pop(ctx, ''), child: const Text('Herstel standaard')),
+                  FilledButton(onPressed: () => Navigator.pop(ctx, editor.text), child: const Text('Opslaan')),
+                ],
+              ));
+              editor.dispose();
+              if (value != null) await box.put(key, value.trim());
+            },
+          )),
+        ]),
+      ],
       const SizedBox(height: 8),
       Text('Deze keuzes gelden voor Live spraak. De juiste taal wordt gebruikt voor herkenning, antwoord en iPhone-stem.',
         style: TextStyle(color: context.textD, fontSize: 12)),
