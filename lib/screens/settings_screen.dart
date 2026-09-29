@@ -170,6 +170,12 @@ class _SettingsBody extends StatelessWidget {
                 const SizedBox(height: 28),
               ],
 
+              // ── Conversation defaults ───────────────────────
+              _sectionHeader(context, 'Conversatie'),
+              const SizedBox(height: 8),
+              const _ConversationDefaultsCard(),
+              const SizedBox(height: 28),
+
               // ── System Prompt ─────────────────────────────
               _sectionHeader(context, 'Global System Prompt'),
               const SizedBox(height: 8),
@@ -1232,6 +1238,79 @@ class _ChatterboxSettingsCardState extends State<_ChatterboxSettingsCard> {
         icon: const Icon(Icons.refresh), label: const Text('Status vernieuwen')),
       if (_error != null) Padding(padding: const EdgeInsets.only(top: 8),
         child: Text(_error!, style: const TextStyle(color: Colors.red))),
+    ]),
+  ));
+}
+
+class _ConversationDefaultsCard extends StatefulWidget {
+  const _ConversationDefaultsCard();
+  @override
+  State<_ConversationDefaultsCard> createState() => _ConversationDefaultsCardState();
+}
+
+class _ConversationDefaultsCardState extends State<_ConversationDefaultsCard> {
+  late String _language;
+  late String _character;
+  final _custom = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    final box = Hive.box('settings');
+    _language = box.get('conversation_language', defaultValue: 'nl_NL') as String;
+    _character = box.get('conversation_character', defaultValue: 'default') as String;
+    _custom.text = box.get('conversation_custom_prompt', defaultValue: '') as String;
+  }
+  @override
+  void dispose() { _custom.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) => _card(context, child: Padding(
+    padding: const EdgeInsets.all(16),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('Taal', style: TextStyle(color: context.text, fontWeight: FontWeight.w600)),
+      DropdownButton<String>(
+        isExpanded: true, value: _language,
+        items: const [
+          DropdownMenuItem(value: 'nl_NL', child: Text('Nederlands')),
+          DropdownMenuItem(value: 'en_US', child: Text('English')),
+          DropdownMenuItem(value: 'de_DE', child: Text('Deutsch')),
+        ],
+        onChanged: (v) async {
+          if (v == null) return;
+          await Hive.box('settings').put('conversation_language', v);
+          setState(() => _language = v);
+        },
+      ),
+      const SizedBox(height: 12),
+      Text('AI-personage', style: TextStyle(color: context.text, fontWeight: FontWeight.w600)),
+      DropdownButton<String>(
+        isExpanded: true, value: _character,
+        items: const [
+          DropdownMenuItem(value: 'default', child: Text('Assistent')),
+          DropdownMenuItem(value: 'unhinged', child: Text('Unhinged')),
+          DropdownMenuItem(value: 'sexy', child: Text('Sexy')),
+          DropdownMenuItem(value: 'conspiracy', child: Text('Conspiracy')),
+          DropdownMenuItem(value: 'therapist', child: Text('Therapeut')),
+          DropdownMenuItem(value: 'custom', child: Text('Eigen personage')),
+        ],
+        onChanged: (v) async {
+          if (v == null) return;
+          await Hive.box('settings').put('conversation_character', v);
+          setState(() => _character = v);
+        },
+      ),
+      if (_character == 'custom') ...[
+        const SizedBox(height: 10),
+        TextField(
+          controller: _custom, minLines: 3, maxLines: 7,
+          decoration: const InputDecoration(labelText: 'Eigen system prompt'),
+          onChanged: (v) => Hive.box('settings').put('conversation_custom_prompt', v),
+        ),
+      ],
+      const SizedBox(height: 8),
+      Text('Deze keuzes gelden voor Live spraak. De juiste taal wordt gebruikt voor herkenning, antwoord en iPhone-stem.',
+        style: TextStyle(color: context.textD, fontSize: 12)),
     ]),
   ));
 }
