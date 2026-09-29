@@ -355,9 +355,13 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
         ),
       ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
+        child: SizedBox.expand(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+            child: Center(
+              child: SizedBox(
+                width: double.infinity,
+                child: Column(
             children: [
               const Spacer(),
               AnimatedBuilder(
@@ -453,6 +457,9 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
               )),
               const SizedBox(height: 12),
             ],
+                ),
+              ),
+            ),
           ),
         ),
       ),
