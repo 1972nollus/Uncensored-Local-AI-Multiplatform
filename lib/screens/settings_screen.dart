@@ -1106,7 +1106,13 @@ class _ConversationDefaultsCardState extends State<_ConversationDefaultsCard> {
   void dispose() { _custom.dispose(); super.dispose(); }
 
   @override
-  Widget build(BuildContext context) => _card(context, child: Padding(
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      color: context.bgCard,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: context.border),
+    ),
+    child: Padding(
     padding: const EdgeInsets.all(16),
     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text('Taal', style: TextStyle(color: context.text, fontWeight: FontWeight.w600)),
