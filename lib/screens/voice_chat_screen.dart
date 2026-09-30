@@ -137,23 +137,23 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
               return;
             }
             refresh(() => _ttsEngine = v);
-            await _saveVoiceSettings();
+            await _saveVoicePrefs();
           }),
           if (_ttsEngine == 'supertonic') DropdownButton<String>(value: _supertonicVoice, isExpanded: true,
             items: const ['M1','M2','M3','M4','M5','F1','F2','F3','F4','F5'].map((v) => DropdownMenuItem(value: v, child: Text('Supertonic $v'))).toList(),
-            onChanged: (v) async { if (v != null) { refresh(() => _supertonicVoice = v); await _saveVoiceSettings(); } }),
+            onChanged: (v) async { if (v != null) { refresh(() => _supertonicVoice = v); await _saveVoicePrefs(); } }),
           const SizedBox(height: 12),
           if (_ttsEngine == 'apple') DropdownButton<String>(value: _voiceStyle, isExpanded: true, items: const [
             DropdownMenuItem(value: 'natural', child: Text('Natuurlijk')),
             DropdownMenuItem(value: 'expressive', child: Text('Expressief')),
             DropdownMenuItem(value: 'energetic', child: Text('Energiek')),
             DropdownMenuItem(value: 'calm', child: Text('Rustig')),
-          ], onChanged: (v) async { if (v == null) return; refresh(() => _voiceStyle = v); await _configureVoice(); await _saveVoiceSettings(); }),
+          ], onChanged: (v) async { if (v == null) return; refresh(() => _voiceStyle = v); await _configureVoice(); await _saveVoicePrefs(); }),
           if (_ttsEngine == 'apple') DropdownButton<String>(value: _voiceId, isExpanded: true, hint: const Text('Automatische iPhone-stem'),
             items: [const DropdownMenuItem<String>(value: null, child: Text('Automatische iPhone-stem')),
               ..._voices.map((v) => DropdownMenuItem<String>(value: v['id'], child: Text(v['name']!)))],
             onChanged: (v) async { refresh(() => _voiceId = v);
-              if (v == null) await _tts.clearVoice(); await _configureVoice(); await _saveVoiceSettings(); }),
+              if (v == null) await _tts.clearVoice(); await _configureVoice(); await _saveVoicePrefs(); }),
           Text(_ttsEngine == 'supertonic' ? 'Supertonic 3 draait lokaal. Modellen beheer je via Settings.' : 'Apple TTS draait volledig lokaal.', style: const TextStyle(fontSize: 12)),
           const SizedBox(height: 12),
           FilledButton.icon(onPressed: () async {
