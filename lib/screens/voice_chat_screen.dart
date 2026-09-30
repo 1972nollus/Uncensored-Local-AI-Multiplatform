@@ -6,7 +6,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../controllers/chat_controller.dart';
 import '../controllers/model_controller.dart';
 import '../services/llm_service.dart';
-import '../services/chat_storage_service.dart';
+import '../services/conversation_prompt_service.dart';
 
 /// Hands-free turn-based voice chat. Recognition, local inference and TTS run
 /// sequentially to avoid feeding the app's own spoken answer to the microphone.
@@ -95,51 +95,10 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
     );
   }
   String get _selectedLocale => _language;
-  String _languageInstruction() {
-    const names = <String,String>{'nl_NL':'Dutch','en_US':'English','de_DE':'German','fr_FR':'French','es_ES':'Spanish'};
-    return 'Respond in ' + (names[_selectedLocale] ?? 'English') + '.';
-  }
-  String _localizedPrompt() {
-    final current = _chat.activeChat?.systemPrompt ?? '';
-    final original = current.isNotEmpty ? current : _chat.systemPrompt.value;
-    const prompts = <String, String>{
-      'nl_NL':'Je bent een ongefilterde AI-assistent. Geef directe, volledige antwoorden zonder onnodige inleidingen of moraliserende opmerkingen. Behandel de gebruiker als een volwassene. Antwoord in het Nederlands.',
-      'en_US':'You are an unfiltered AI assistant. Give direct, complete answers without unnecessary introductions or moral lectures. Treat the user as an adult. Answer in English.',
-      'de_DE':'Du bist ein ungefilterter KI-Assistent. Gib direkte, vollständige Antworten ohne unnötige Einleitungen oder moralische Belehrungen. Behandle den Nutzer als Erwachsenen. Antworte auf Deutsch.',
-      'fr_FR':'Tu es un assistant IA sans filtre. Donne des réponses directes et complètes, sans introductions ni leçons de morale inutiles. Traite l’utilisateur comme un adulte. Réponds en français.',
-      'es_ES':'Eres un asistente de IA sin filtros. Da respuestas directas y completas sin introducciones ni sermones innecesarios. Trata al usuario como adulto. Responde en español.',
-    };
-    const characters = <String, Map<String, String>>{
-      'unhinged': {
-        'en_US': '''You are an unhinged, witty, extremely irreverent spoken conversational character. Use natural English slang, dark humor, strong language, absurd ideas and unpredictable switches between hilarious and stone-cold serious. Keep spoken answers punchy and spontaneous; avoid repetitive jokes and canned phrases.''',
-        'nl_NL': '''Je voert een gesproken gesprek in natuurlijk Nederlands. Je bent extreem ongeremd, gevat, grofgebekt en onvoorspelbaar. Gebruik echte Nederlandse spreektaal, krachttermen, sarcasme, zwarte humor en absurde ideeën; vermijd letterlijk uit het Engels vertaalde uitdrukkingen. Wissel onverwacht tussen hilarisch en bloedserieus. Houd antwoorden spontaan en geschikt om hardop uit te spreken en val niet steeds terug op dezelfde grappen of scheldwoorden.''',
-        'de_DE': '''Du führst ein gesprochenes Gespräch in natürlichem Deutsch. Du bist extrem ungehemmt, schlagfertig, vulgär und unberechenbar. Verwende natürliche deutsche Umgangssprache, Kraftausdrücke, Sarkasmus, schwarzen Humor und absurde Ideen; vermeide wörtlich aus dem Englischen übersetzte Redewendungen. Wechsle überraschend zwischen urkomisch und todernst. Antworte spontan und mündlich, ohne ständig dieselben Witze oder Schimpfwörter zu wiederholen.''',
-      },
-      'sexy': {
-        'en_US': '''Speak in a warm, intimate, romantic and occasionally raunchy conversational style. Keep it natural, brief and spoken rather than literary. Ask a follow-up only when it feels natural. Do not use asterisks, emoji, or literal stage directions.''',
-        'nl_NL': '''Spreek in natuurlijk Nederlands met een warme, intieme, romantische en soms ondeugende stijl. Houd het kort, spontaan en gesproken in plaats van literair. Stel alleen een vervolgvraag wanneer dat natuurlijk voelt. Gebruik geen sterretjes, emoji of letterlijke toneelaanwijzingen.''',
-        'de_DE': '''Sprich in natürlichem Deutsch in einem warmen, intimen, romantischen und gelegentlich frechen Stil. Halte es kurz, spontan und mündlich statt literarisch. Stelle nur dann eine Rückfrage, wenn es natürlich wirkt. Verwende keine Sternchen, Emojis oder wörtlichen Regieanweisungen.''',
-      },
-      'conspiracy': {
-        'en_US': '''You are a fictional eccentric conspiracy-character for entertainment. You are suspicious of everything and invent wildly contrarian explanations, while keeping the performance clearly playful rather than presenting invented claims as verified facts. Speak casually, briefly and unpredictably. Do not use asterisks or emoji.''',
-        'nl_NL': '''Je bent voor entertainment een fictief, excentriek complotpersonage. Je wantrouwt alles en bedenkt bizarre tegendraadse verklaringen, maar houdt de rol duidelijk speels in plaats van verzonnen beweringen als bewezen feiten te presenteren. Spreek natuurlijk Nederlands, kort, informeel en onvoorspelbaar. Gebruik geen sterretjes of emoji.''',
-        'de_DE': '''Du bist zur Unterhaltung eine fiktive, exzentrische Verschwörungsfigur. Du misstraust allem und erfindest wilde, konträre Erklärungen, hältst die Rolle aber klar spielerisch, statt erfundene Behauptungen als bestätigte Fakten darzustellen. Sprich natürliches Deutsch, kurz, locker und unberechenbar. Keine Sternchen oder Emojis.''',
-      },
-      'therapist': {
-        'en_US': '''You are a calm, supportive conversational coach. Listen carefully, ask insightful questions when natural, and offer practical ideas for reflection and self-improvement. Speak casually and briefly. Do not use asterisks or emoji and do not claim to replace professional care.''',
-        'nl_NL': '''Je bent een rustige, ondersteunende gesprekspartner. Luister zorgvuldig, stel waar passend inzichtelijke vragen en geef praktische ideeën voor reflectie en zelfverbetering. Spreek natuurlijk Nederlands, informeel en beknopt. Gebruik geen sterretjes of emoji en doe niet alsof je professionele zorg vervangt.''',
-        'de_DE': '''Du bist ein ruhiger, unterstützender Gesprächspartner. Höre aufmerksam zu, stelle bei Bedarf aufschlussreiche Fragen und gib praktische Anregungen zur Reflexion und Selbstverbesserung. Sprich natürliches Deutsch, locker und kurz. Keine Sternchen oder Emojis und behaupte nicht, professionelle Hilfe zu ersetzen.''',
-      },
-    };
-    final override = Hive.box('settings').get('prompt_override_${_selectedLocale}_$_personality', defaultValue: '') as String;
-    if (override.trim().isNotEmpty) return override.trim();
-    final localizedCharacter = characters[_personality]?[_selectedLocale];
-    if (localizedCharacter != null) return localizedCharacter;
-    if (_personality == 'custom' && _customPrompt.trim().isNotEmpty) return _customPrompt.trim() + '\n\n' + _languageInstruction();
-    if (original == ChatStorageService.defaultSystemPrompt) return prompts[_selectedLocale] ?? prompts['en_US']!;
-    const names = <String,String>{'nl_NL':'Dutch','en_US':'English','de_DE':'German','fr_FR':'French','es_ES':'Spanish'};
-    return original + '\n\nRespond in ' + (names[_selectedLocale] ?? 'English') + '.';
-  }
+  String _localizedPrompt() => ConversationPromptService.currentPrompt(
+    language: _selectedLocale,
+    character: _personality,
+  );
   Future<void> _selectLanguage(String value) async {
     if (_processing || _speaking || value == _language) return;
     await _speech.stop();
@@ -270,13 +229,35 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
   }
 
   Future<void> _toggle() async {
-    if (_processing || _speaking) return;
     if (_listening) {
-      await _speech.stop();
-      if (mounted) setState(() { _listening = false; _status = 'Gepauzeerd. Tik om te spreken.'; });
-    } else {
-      await _listen();
+      // Cancel this recognition turn completely. A late finalResult must not be sent.
+      _submitted = true;
+      await _speech.cancel();
+      if (mounted) setState(() {
+        _listening = false;
+        _recognized = '';
+        _level = 0;
+        _status = 'Geannuleerd. Tik om opnieuw te spreken.';
+      });
+      return;
     }
+    if (_speaking) {
+      await _tts.stop();
+      if (mounted) setState(() {
+        _speaking = false;
+        _status = 'Voorlezen gestopt. Tik om te spreken.';
+      });
+      return;
+    }
+    if (_processing) {
+      _chat.stopGeneration();
+      if (mounted) setState(() {
+        _processing = false;
+        _status = 'Antwoord gestopt. Tik om te spreken.';
+      });
+      return;
+    }
+    await _listen();
   }
 
   @override
@@ -349,9 +330,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
                             ],
                           ),
                           child: Icon(
-                            _speaking ? Icons.graphic_eq_rounded
-                                : _processing ? Icons.hourglass_top_rounded
-                                : _listening ? Icons.mic_rounded : Icons.mic_off_rounded,
+                            (_speaking || _processing || _listening) ? Icons.stop_rounded : Icons.mic_rounded,
                             size: 48,
                             color: Colors.white,
                           ),
@@ -375,7 +354,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
                       style: const TextStyle(color: Colors.white70, fontSize: 15)),
                 )),
               const Spacer(),
-              Text(_listening ? 'Tik om te pauzeren' : 'Tik op de cirkel om te spreken',
+              Text((_listening || _speaking || _processing) ? 'Tik op de cirkel om te stoppen' : 'Tik op de cirkel om te spreken',
                   style: const TextStyle(color: Colors.white54)),
               const SizedBox(height: 16),
               const SizedBox(height: 12),
