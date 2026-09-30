@@ -12,6 +12,7 @@ import '../services/model_manager.dart';
 import '../services/background_optimizer_service.dart';
 import '../services/chat_storage_service.dart';
 import '../services/conversation_prompt_service.dart';
+import '../services/supertonic_service.dart';
 
 class SettingsScreen extends StatelessWidget {
   /// When true, no Scaffold — just the body content for embedding in tabs.
@@ -165,6 +166,12 @@ class _SettingsBody extends StatelessWidget {
               _sectionHeader(context, 'Conversatie'),
               const SizedBox(height: 8),
               const _ConversationDefaultsCard(),
+              const SizedBox(height: 28),
+
+              // ── Supertonic 3 ──────────────────────────────
+              _sectionHeader(context, 'Supertonic 3 · Neural Voice'),
+              const SizedBox(height: 8),
+              const _SupertonicDownloadCard(),
               const SizedBox(height: 28),
 
               // ── Temperature ───────────────────────────────
@@ -693,6 +700,102 @@ class _SettingsBody extends StatelessWidget {
           color: color,
           fontSize: 12,
           fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+class _SupertonicDownloadCard extends StatefulWidget {
+  const _SupertonicDownloadCard();
+
+  @override
+  State<_SupertonicDownloadCard> createState() => _SupertonicDownloadCardState();
+}
+
+class _SupertonicDownloadCardState extends State<_SupertonicDownloadCard> {
+  final _supertonic = SupertonicService.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _supertonic.refresh();
+  }
+
+  Future<void> _download() async {
+    try {
+      await _supertonic.download();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_supertonic.detail.value)),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: context.bgPanel,
+        border: Border.all(color: context.border),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: ValueListenableBuilder<bool>(
+        valueListenable: _supertonic.downloading,
+        builder: (context, downloading, _) => ValueListenableBuilder<bool>(
+          valueListenable: _supertonic.installed,
+          builder: (context, installed, _) => Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                Icon(installed ? Icons.check_circle_rounded : Icons.record_voice_over_rounded,
+                    color: installed ? AppColors.green : AppColors.accent),
+                const SizedBox(width: 10),
+                Expanded(child: Text(
+                  installed ? 'Geïnstalleerd' : downloading ? 'Modellen downloaden...' : 'Niet geïnstalleerd',
+                  style: TextStyle(color: context.text, fontWeight: FontWeight.w600),
+                )),
+              ]),
+              const SizedBox(height: 8),
+              Text(
+                'Download de Supertonic 3-modellen (~400 MB) één keer. Daarna werken de M1–M5 en F1–F5 stemmen volledig offline.',
+                style: TextStyle(color: context.textD, fontSize: 12, height: 1.4),
+              ),
+              if (downloading) ...[
+                const SizedBox(height: 14),
+                ValueListenableBuilder<double>(
+                  valueListenable: _supertonic.progress,
+                  builder: (_, value, __) => Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      LinearProgressIndicator(value: value),
+                      const SizedBox(height: 7),
+                      Text('${(value * 100).round()}% totaal',
+                          style: TextStyle(color: context.textM, fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 8),
+              ValueListenableBuilder<String>(
+                valueListenable: _supertonic.detail,
+                builder: (_, value, __) => Text(value,
+                    style: TextStyle(color: context.textD, fontSize: 11)),
+              ),
+              if (!installed) ...[
+                const SizedBox(height: 14),
+                SizedBox(width: double.infinity, child: FilledButton.icon(
+                  onPressed: downloading ? null : _download,
+                  icon: downloading
+                      ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.download_rounded),
+                  label: Text(downloading ? 'Download bezig…' : 'Download Supertonic 3'),
+                )),
+              ],
+            ],
+          ),
         ),
       ),
     );
