@@ -1,4 +1,10 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'package:supertonic_flutter/supertonic_flutter.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:audio_session/audio_session.dart' as audio_session;
+import 'package:path_provider/path_provider.dart';
 import 'package:get/get.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:flutter_tts/flutter_tts.dart';
@@ -8,6 +14,7 @@ import '../controllers/chat_controller.dart';
 import '../controllers/model_controller.dart';
 import '../controllers/theme_controller.dart';
 import '../services/llm_service.dart';
+import '../services/supertonic_service.dart';
 import '../widgets/chat_sidebar.dart';
 import '../widgets/chat_bubble.dart';
 import '../widgets/typing_indicator.dart';
@@ -31,6 +38,10 @@ class _HomeScreenState extends State<HomeScreen> {
   final _scrollController = ScrollController();
   final stt.SpeechToText _speech = stt.SpeechToText();
   final FlutterTts _tts = FlutterTts();
+  final SupertonicTTS _supertonic = SupertonicTTS();
+  final AudioPlayer _supertonicPlayer = AudioPlayer();
+  final SupertonicService _supertonicState = SupertonicService.instance;
+  bool _supertonicReady = false;
   bool _isListening = false;
   bool _speakResponses = true;
   bool _sidebarOpen = true;
@@ -48,9 +59,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _scrollController.addListener(_handleChatScroll);
-    _tts.setLanguage('nl-NL');
-    _tts.setSpeechRate(0.48);
     _tts.setVolume(1.0);
+    _tts.awaitSpeakCompletion(true);
+    _configureAppleVoice();
   }
 
   @override
@@ -59,6 +70,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _scrollController.dispose();
     _speech.stop();
     _tts.stop();
+    _supertonicPlayer.dispose();
     _msgController.dispose();
     super.dispose();
   }
@@ -114,11 +126,182 @@ class _HomeScreenState extends State<HomeScreen> {
       if (chat != null && chat.messages.isNotEmpty) {
         final answer = chat.messages.last.content.trim();
         if (answer.isNotEmpty && !answer.startsWith('⚠')) {
-          await _tts.stop();
-          await _tts.speak(answer);
+          await _stopVoice();
+          await _speakWithSavedVoice(answer);
         }
       }
     }
+  }
+
+  String get _conversationLocale =>
+      (Hive.box('settings').get('conversation_language', defaultValue: 'nl_NL') as String);
+  String get _ttsEngine =>
+      (Hive.box('settings').get('voice_tts_engine', defaultValue: 'apple') as String);
+  String get _supertonicVoice =>
+      (Hive.box('settings').get('voice_supertonic_voice', defaultValue: 'F1') as String);
+  String get _appleStyle =>
+      (Hive.box('settings').get('voice_apple_style', defaultValue: 'expressive') as String);
+  String? get _appleVoiceId => Hive.box('settings').get('voice_apple_id') as String?;
+
+  Future<void> _configureAppleVoice() async {
+    await _tts.setLanguage(_conversationLocale.replaceAll('_', '-'));
+    switch (_appleStyle) {
+      case 'energetic': await _tts.setSpeechRate(0.57); await _tts.setPitch(1.14); break;
+      case 'calm': await _tts.setSpeechRate(0.43); await _tts.setPitch(0.96); break;
+      case 'expressive': await _tts.setSpeechRate(0.51); await _tts.setPitch(1.07); break;
+      default: await _tts.setSpeechRate(0.48); await _tts.setPitch(1.0);
+    }
+    final id = _appleVoiceId;
+    if (id != null) await _tts.setVoice({'identifier': id});
+  }
+
+  Future<void> _preparePlaybackSession() async {
+    await _speech.stop();
+    if (Platform.isIOS) {
+      final session = await audio_session.AudioSession.instance;
+      await session.configure(const audio_session.AudioSessionConfiguration(
+        avAudioSessionCategory: audio_session.AVAudioSessionCategory.playback,
+        avAudioSessionMode: audio_session.AVAudioSessionMode.spokenAudio,
+        avAudioSessionRouteSharingPolicy: audio_session.AVAudioSessionRouteSharingPolicy.defaultPolicy,
+        avAudioSessionSetActiveOptions: audio_session.AVAudioSessionSetActiveOptions.none,
+      ));
+      await session.setActive(true);
+    }
+  }
+
+  Future<void> _speakWithSavedVoice(String text) async {
+    await _preparePlaybackSession();
+    if (_ttsEngine == 'supertonic' && await _supertonicState.refresh()) {
+      if (!_supertonicReady) {
+        await _supertonic.initialize();
+        _supertonicReady = true;
+      }
+      final result = await _supertonic.synthesize(
+        text,
+        language: _conversationLocale.split('_').first.toLowerCase(),
+        voiceStyle: _supertonicVoice,
+        config: const TTSConfig(speechSpeed: 1.05, denoisingSteps: 5),
+      );
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/supertonic_text_output.wav');
+      await file.writeAsBytes(result.toWavBytes(), flush: true);
+      final completed = _supertonicPlayer.onPlayerComplete.first;
+      await _supertonicPlayer.play(DeviceFileSource(file.path));
+      await completed.timeout(const Duration(minutes: 2));
+      try { await file.delete(); } catch (_) {}
+      return;
+    }
+    await _configureAppleVoice();
+    await _tts.speak(text);
+  }
+
+  Future<void> _stopVoice() async {
+    await _tts.stop();
+    await _supertonicPlayer.stop();
+  }
+
+  Future<void> _showVoiceSettings() async {
+    await _stopVoice();
+    final box = Hive.box('settings');
+    String engine = _ttsEngine;
+    String superVoice = _supertonicVoice;
+    String style = _appleStyle;
+    String? voiceId = _appleVoiceId;
+    List<Map<String, String>> voices = [];
+    try {
+      final raw = await _tts.getVoices;
+      final locale = _conversationLocale.replaceAll('_', '-').toLowerCase();
+      if (raw is List) {
+        voices = raw.whereType<Map>().where((v) =>
+          (v['locale'] ?? '').toString().replaceAll('_', '-').toLowerCase() == locale &&
+          (v['identifier'] ?? '').toString().isNotEmpty).map((v) =>
+          {'id': v['identifier'].toString(), 'name': (v['name'] ?? v['identifier']).toString()}).toList();
+      }
+    } catch (_) {}
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, refresh) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('Steminstellingen', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            DropdownButton<String>(
+              value: engine, isExpanded: true,
+              items: const [
+                DropdownMenuItem(value: 'apple', child: Text('Apple iPhone-stemmen')),
+                DropdownMenuItem(value: 'supertonic', child: Text('Supertonic 3 · Neural offline')),
+              ],
+              onChanged: (v) async {
+                if (v == null) return;
+                if (v == 'supertonic' && !await _supertonicState.refresh()) {
+                  if (mounted) Get.snackbar('Supertonic 3', 'Download Supertonic 3 eerst via Settings.');
+                  return;
+                }
+                refresh(() => engine = v);
+                await box.put('voice_tts_engine', v);
+              },
+            ),
+            if (engine == 'supertonic') DropdownButton<String>(
+              value: superVoice, isExpanded: true,
+              items: const ['M1','M2','M3','M4','M5','F1','F2','F3','F4','F5']
+                  .map((v) => DropdownMenuItem(value: v, child: Text('Supertonic $v'))).toList(),
+              onChanged: (v) async {
+                if (v == null) return;
+                refresh(() => superVoice = v);
+                await box.put('voice_supertonic_voice', v);
+              },
+            ),
+            if (engine == 'apple') DropdownButton<String>(
+              value: style, isExpanded: true,
+              items: const [
+                DropdownMenuItem(value: 'natural', child: Text('Natuurlijk')),
+                DropdownMenuItem(value: 'expressive', child: Text('Expressief')),
+                DropdownMenuItem(value: 'energetic', child: Text('Energiek')),
+                DropdownMenuItem(value: 'calm', child: Text('Rustig')),
+              ],
+              onChanged: (v) async {
+                if (v == null) return;
+                refresh(() => style = v);
+                await box.put('voice_apple_style', v);
+              },
+            ),
+            if (engine == 'apple') DropdownButton<String>(
+              value: voiceId != null && voices.any((v) => v['id'] == voiceId) ? voiceId : null,
+              isExpanded: true,
+              hint: const Text('Automatische iPhone-stem'),
+              items: [
+                const DropdownMenuItem<String>(value: null, child: Text('Automatische iPhone-stem')),
+                ...voices.map((v) => DropdownMenuItem<String>(value: v['id'], child: Text(v['name']!))),
+              ],
+              onChanged: (v) async {
+                refresh(() => voiceId = v);
+                if (v == null) await box.delete('voice_apple_id');
+                else await box.put('voice_apple_id', v);
+              },
+            ),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: () async {
+                try {
+                  await _speakWithSavedVoice(_conversationLocale == 'nl_NL'
+                      ? 'Hallo! Dit is mijn nieuwe stem. Wat zullen we bespreken?'
+                      : 'Hello! This is my new voice. What shall we discuss?');
+                } catch (e) {
+                  if (mounted) Get.snackbar('Stemfout', e.toString());
+                }
+              },
+              icon: const Icon(Icons.play_arrow),
+              label: const Text('Stem beluisteren'),
+            ),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Sluiten')),
+          ]),
+        ),
+      )),
+    );
+    if (mounted) setState(() {});
   }
 
   Future<void> _toggleListening() async {
