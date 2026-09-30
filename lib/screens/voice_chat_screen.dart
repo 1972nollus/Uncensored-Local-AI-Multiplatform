@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:audio_session/audio_session.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:get/get.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:flutter_tts/flutter_tts.dart';
@@ -112,7 +113,9 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
     if (_ttsEngine == 'supertonic') {
       if (await _ensureSupertonic()) {
         final result = await _supertonic.synthesize(text, language: _supertonicLanguage, voiceStyle: _supertonicVoice, config: const TTSConfig(speechSpeed: 1.05, denoisingSteps: 5));
+        final completed = _supertonicPlayer.playerStateStream.firstWhere((state) => state == PlayerState.completed);
         await _supertonicPlayer.play(result);
+        await completed.timeout(const Duration(minutes: 2));
         return;
       }
     }
