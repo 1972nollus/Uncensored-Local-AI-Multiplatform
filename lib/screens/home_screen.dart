@@ -1370,6 +1370,18 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
 
+            // Shared voice selector. The selected engine/voice is persisted
+            // in Hive and is therefore also used by Live Voice.
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: _circleButton(
+                icon: Icons.record_voice_over_outlined,
+                color: AppColors.accent,
+                onTap: _showVoiceSettings,
+                tooltip: 'Stem kiezen',
+              ),
+            ),
+
             // Toggle spoken responses
             Padding(
               padding: const EdgeInsets.only(bottom: 6),
@@ -1378,7 +1390,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 color: _speakResponses ? AppColors.accent : context.textD,
                 onTap: () {
                   setState(() => _speakResponses = !_speakResponses);
-                  if (!_speakResponses) _tts.stop();
+                  if (!_speakResponses) _stopVoice();
                 },
                 tooltip: _speakResponses ? 'Voice replies on' : 'Voice replies off',
               ),
