@@ -378,38 +378,6 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
               Text(_listening ? 'Tik om te pauzeren' : 'Tik op de cirkel om te spreken',
                   style: const TextStyle(color: Colors.white54)),
               const SizedBox(height: 16),
-              Obx(() => TextButton.icon(
-                onPressed: _models.isLoadingModel.value ? null : () async {
-                  if (_models.selectedModelFilename.value == 'Dolphin3.0-Llama3.2-3B-Q4_K_M.gguf' && _llm.isLoaded.value) return;
-                  final model = _models.catalog.firstWhereOrNull((m) => m.id == 'dolphin3-llama32-3b');
-                  if (model == null) return;
-                  final confirmed = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
-                    title: const Text('Dolphin 3B voor Unhinged'),
-                    content: const Text('Download een compact model van circa 2 GB dat geschikt is om expressieve persoonlijkheden te proberen. Niet gegarandeerd identiek aan Grok. Een ander geladen model wordt vervangen wanneer je dit model laadt.'),
-                    actions: [
-                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuleren')),
-                      TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Doorgaan')),
-                    ],
-                  ));
-                  if (confirmed != true || !mounted) return;
-                  if (!_models.downloadedModels.contains(model.filename)) await _models.downloadModel(model);
-                  if (!mounted || !_models.downloadedModels.contains(model.filename)) return;
-                  await _speech.stop();
-                  if (!mounted) return;
-                  setState(() { _listening = false; _status = 'Model laden...'; });
-                  await _models.loadModel(model.filename);
-                  if (mounted) setState(() => _status = _llm.isLoaded.value ? 'Model geladen. Tik om te spreken.' : 'Model kon niet worden geladen.');
-                },
-                icon: const Icon(Icons.download_outlined, color: Colors.white70),
-                label: Text(
-                  _models.isLoadingModel.value ? 'Model laden...' :
-                  _models.selectedModelFilename.value == 'Dolphin3.0-Llama3.2-3B-Q4_K_M.gguf' && _llm.isLoaded.value
-                    ? 'Dolphin 3B is geladen' :
-                  _models.downloadedModels.contains('Dolphin3.0-Llama3.2-3B-Q4_K_M.gguf')
-                    ? 'Dolphin 3B laden' : 'Dolphin 3B downloaden',
-                  style: const TextStyle(color: Colors.white70),
-                ),
-              )),
               const SizedBox(height: 12),
             ],
                 ),
