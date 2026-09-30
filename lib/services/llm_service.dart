@@ -227,13 +227,16 @@ try {
     'requested GPU layers=$requestedGpuLayers',
     source: 'LLM',
   );
-  activeGpuLayers.value = resolvedGpuLayers;
-  if (Platform.isIOS && resolvedGpuLayers > 0) {
-    await settings.put(profileKey, resolvedGpuLayers);
+  // llamadart returns int? here because some backends cannot report
+  // a resolved layer count. Fall back to the requested value in that case.
+  final effectiveGpuLayers = resolvedGpuLayers ?? requestedGpuLayers;
+  activeGpuLayers.value = effectiveGpuLayers;
+  if (Platform.isIOS && effectiveGpuLayers > 0) {
+    await settings.put(profileKey, effectiveGpuLayers);
     await settings.put('${profileKey}_context', contextSize);
     await settings.put('${profileKey}_size', fileSize);
     autoPerformanceProfile.value =
-        'Metal profiel · $resolvedGpuLayers GPU-layers · ctx $contextSize';
+        'Metal profiel · $effectiveGpuLayers GPU-layers · ctx $contextSize';
   }
 } catch (e) {
   log?.warn(
