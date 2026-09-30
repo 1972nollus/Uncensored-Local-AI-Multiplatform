@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:llamadart/llamadart.dart';
 import 'package:path/path.dart' as p;
-import 'package:hive/hive.dart';
 
 import 'wakelock_service.dart';
 import 'chat_storage_service.dart';
@@ -21,11 +20,6 @@ class LlmService extends GetxService {
   final tokensPerSecond = 0.0.obs;
   final lastGenerationTokens = 0.obs;
   final lastGenerationSpeed = 0.0.obs;
-  final activeGpuLayers = 0.obs;
-  final autoPerformanceProfile = ''.obs;
-  String? _activeProfileKey;
-  int? _activeFileSize;
-  int? _activeContextSize;
 
   // ── Loading progress tracking ──────────────────────────────
   final isLoadingModel = false.obs;
@@ -175,32 +169,10 @@ class LlmService extends GetxService {
           parsedBackend = GpuBackend.cpu;
       }
 
-      // iOS: keep a performance profile per GGUF instead of forcing one
-      // global layer count on every model. A saved measured/resolved value wins.
-      // For a new model we retain the user's current value as a safe baseline;
-      // after a successful load the native resolved Metal layer count is cached.
-      final profileKey = 'perf_gpu_layers_$filename';
-      final settings = Hive.box('settings');
-      final cachedLayers = settings.get(profileKey) as num?;
-      final autoEnabled = settings.get('auto_metal_optimizer', defaultValue: true) as bool;
-      // First-load candidates are intentionally conservative. iOS jetsam is not
-      // catchable in Dart, so the optimizer never probes arbitrary high values.
-      final safeAutoLayers = fileSize >= 3 * 1024 * 1024 * 1024
-          ? 12
-          : fileSize >= 2 * 1024 * 1024 * 1024
-              ? 18
-              : 24;
-      final requestedGpuLayers = Platform.isIOS
-          ? (cachedLayers?.toInt() ??
-              (autoEnabled ? (storage.gpuLayers > 0 ? storage.gpuLayers : safeAutoLayers) : storage.gpuLayers))
-          : storage.gpuLayers;
-      _activeProfileKey = profileKey;
-      _activeFileSize = fileSize;
-      _activeContextSize = contextSize;
-      activeGpuLayers.value = requestedGpuLayers;
-      autoPerformanceProfile.value = cachedLayers == null
-          ? 'Nieuw model · veilige basis: $requestedGpuLayers GPU-layers'
-          : 'Opgeslagen profiel · $requestedGpuLayers GPU-layers';
+      // Stable path: use the explicit hardware setting. Automatic probing was
+      // removed because a failed iOS Metal allocation can leave the native
+      // runtime unable to load even a smaller model until the process restarts.
+      final requestedGpuLayers = storage.gpuLayers;
 
       // Optimize threads: 4 for both generation and batch processing to keep memory stable.
       final params = ModelParams(
@@ -215,34 +187,16 @@ class LlmService extends GetxService {
 await _engine!.loadModel(path, modelParams: params);
 progressTimer.cancel();
 
-// Runtime diagnostics: report what llamadart actually selected,
-// not just what was requested in Settings.
+// Runtime diagnostics only; never mutate the next model load from this value.
 try {
   final activeBackend = await _engine!.getBackendName();
   final resolvedGpuLayers = await _engine!.getResolvedGpuLayers();
-
   log?.info(
-    'Runtime backend=$activeBackend, '
-    'resolved GPU layers=$resolvedGpuLayers, '
-    'requested GPU layers=$requestedGpuLayers',
+    'Runtime backend=$activeBackend, resolved GPU layers=$resolvedGpuLayers, requested GPU layers=$requestedGpuLayers',
     source: 'LLM',
   );
-  // llamadart returns int? here because some backends cannot report
-  // a resolved layer count. Fall back to the requested value in that case.
-  final effectiveGpuLayers = resolvedGpuLayers ?? requestedGpuLayers;
-  activeGpuLayers.value = effectiveGpuLayers;
-  if (Platform.isIOS && effectiveGpuLayers > 0) {
-    await settings.put(profileKey, effectiveGpuLayers);
-    await settings.put('${profileKey}_context', contextSize);
-    await settings.put('${profileKey}_size', fileSize);
-    autoPerformanceProfile.value =
-        'Metal profiel · $effectiveGpuLayers GPU-layers · ctx $contextSize';
-  }
 } catch (e) {
-  log?.warn(
-    'Runtime diagnostics unavailable: $e',
-    source: 'LLM',
-  );
+  log?.warn('Runtime diagnostics unavailable: $e', source: 'LLM');
 }
 
 if (_loadingCancelled) {
@@ -410,25 +364,7 @@ if (_loadingCancelled) {
       lastGenerationTokens.value = tokenCount;
       lastGenerationSpeed.value = tokensPerSecond.value;
       isGenerating.value = false;
-      await _recordIosPerformanceSample(tokenCount, tokensPerSecond.value);
     }
-  }
-
-  Future<void> _recordIosPerformanceSample(int tokenCount, double speed) async {
-    if (!Platform.isIOS || tokenCount < 12 || speed <= 0 || _activeProfileKey == null) return;
-    final settings = Hive.box('settings');
-    if (!(settings.get('auto_metal_optimizer', defaultValue: true) as bool)) return;
-    final key = _activeProfileKey!;
-    final samples = (settings.get('${key}_samples', defaultValue: 0) as num).toInt() + 1;
-    final oldAvg = (settings.get('${key}_tps', defaultValue: 0.0) as num).toDouble();
-    final avg = oldAvg == 0 ? speed : ((oldAvg * (samples - 1)) + speed) / samples;
-    await settings.put('${key}_samples', samples);
-    await settings.put('${key}_tps', avg);
-    await settings.put('${key}_context', _activeContextSize);
-    await settings.put('${key}_size', _activeFileSize);
-    await settings.put(key, activeGpuLayers.value);
-    autoPerformanceProfile.value =
-        'Auto Metal · ${activeGpuLayers.value} layers · ${avg.toStringAsFixed(1)} tok/s · $samples meting(en)';
   }
 
   /// Generate a chat completion using llamadart's chat-template API.
