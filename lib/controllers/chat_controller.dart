@@ -74,6 +74,7 @@ class ChatController extends GetxController {
   /// Send a user message and stream AI response.
   Future<void> sendMessage(String text, {String? modelFilename, String? systemPromptOverride}) async {
     if (text.trim().isEmpty) return;
+    if (isGenerating.value || _llm.isGenerating.value) return;
     final chat = activeChat;
     if (chat == null) return;
 
@@ -140,8 +141,8 @@ class ChatController extends GetxController {
   }
 
   /// Stop current generation.
-  void stopGeneration() {
-    _llm.stopGeneration();
+  Future<void> stopGeneration() async {
+    await _llm.stopGeneration();
     isGenerating.value = false;
   }
 
