@@ -38,6 +38,7 @@ dependencies:
   flutter_tts: ^4.2.5
   supertonic_flutter: ^2.0.0
   audio_session: ^0.2.4
+  audioplayers: ^6.0.0
 
   # ── Background / Wake Lock ─────────────────────────────────────
   wakelock_plus: ^1.2.10             # Keep screen on during downloads
