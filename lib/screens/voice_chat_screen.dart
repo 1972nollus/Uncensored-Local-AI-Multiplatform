@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:audio_session/audio_session.dart';
 import 'package:get/get.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:flutter_tts/flutter_tts.dart';
@@ -90,7 +92,23 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
     else { await box.put('voice_apple_id', _voiceId); }
   }
 
+  Future<void> _preparePlaybackSession() async {
+    await _speech.stop();
+    if (Platform.isIOS) {
+      final session = await AudioSession.instance;
+      await session.configure(const AudioSessionConfiguration(
+        avAudioSessionCategory: AVAudioSessionCategory.playback,
+        avAudioSessionMode: AVAudioSessionMode.spokenAudio,
+        avAudioSessionRouteSharingPolicy: AVAudioSessionRouteSharingPolicy.defaultPolicy,
+        avAudioSessionSetActiveOptions: AVAudioSessionSetActiveOptions.none,
+      ));
+      await session.setActive(true);
+    }
+    await Future.delayed(const Duration(milliseconds: 120));
+  }
+
   Future<void> _speakText(String text) async {
+    await _preparePlaybackSession();
     if (_ttsEngine == 'supertonic') {
       if (await _ensureSupertonic()) {
         final result = await _supertonic.synthesize(text, language: _supertonicLanguage, voiceStyle: _supertonicVoice, config: const TTSConfig(speechSpeed: 1.05, denoisingSteps: 5));
@@ -105,6 +123,21 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
   Future<void> _stopSpeaking() async {
     await _tts.stop();
     await _supertonicPlayer.stop();
+  }
+
+  Future<void> _previewVoice() async {
+    if (!mounted) return;
+    setState(() => _status = _ttsEngine == 'supertonic'
+        ? 'Supertonic stem voorbereiden...'
+        : 'Apple-stem voorbereiden...');
+    try {
+      await _speakText(_selectedLocale == 'nl_NL'
+          ? 'Hallo! Dit is mijn nieuwe stem. Wat zullen we bespreken?'
+          : 'Hello! This is my new voice. What shall we discuss?');
+      if (mounted) setState(() => _status = 'Stemtest voltooid.');
+    } catch (e) {
+      if (mounted) setState(() => _status = 'Stemfout: $e');
+    }
   }
 
   Future<void> _voiceSettings() async {
@@ -156,11 +189,8 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
               if (v == null) await _tts.clearVoice(); await _configureVoice(); await _saveVoicePrefs(); }),
           Text(_ttsEngine == 'supertonic' ? 'Supertonic 3 draait lokaal. Modellen beheer je via Settings.' : 'Apple TTS draait volledig lokaal.', style: const TextStyle(fontSize: 12)),
           const SizedBox(height: 12),
-          FilledButton.icon(onPressed: () async {
-            await _speakText(_selectedLocale == 'nl_NL'
-              ? 'Hallo! Dit is mijn nieuwe stem. Wat zullen we bespreken?'
-              : 'Hello! This is my new voice. What shall we discuss?');
-          }, icon: const Icon(Icons.play_arrow), label: const Text('Stem beluisteren')),
+          FilledButton.icon(onPressed: _previewVoice,
+            icon: const Icon(Icons.play_arrow), label: const Text('Stem beluisteren')),
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Sluiten')),
         ])))),
     );
@@ -270,6 +300,10 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
 
   Future<void> _answer(String spoken) async {
     if (!_active || _processing || !mounted) return;
+    if (_llm.isGenerating.value || _chat.isGenerating.value) {
+      setState(() => _status = 'Vorige generatie wordt nog afgerond. Tik zo opnieuw.');
+      return;
+    }
     _processing = true;
     await _speech.stop();
     if (!mounted || !_active) return;
@@ -328,7 +362,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
     }
     if (_processing) {
       _turnCancelled = true;
-      _chat.stopGeneration();
+      await _chat.stopGeneration();
       if (mounted) setState(() {
         _processing = false;
         _status = 'Antwoord gestopt. Tik om te spreken.';
