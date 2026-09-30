@@ -424,7 +424,16 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
         leading: IconButton(
           icon: const Icon(Icons.close),
           tooltip: 'Sluiten',
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: () async {
+            _active = false;
+            _turnCancelled = true;
+            await _speech.cancel();
+            await _stopSpeaking();
+            if (_processing || _llm.isGenerating.value || _chat.isGenerating.value) {
+              await _chat.stopGeneration();
+            }
+            if (mounted) Navigator.of(context).pop();
+          },
         ),
       ),
       body: SafeArea(
