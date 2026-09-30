@@ -19,6 +19,7 @@ class ChatController extends GetxController {
   final systemPrompt = ''.obs;
 
   StreamSubscription<String>? _genSub;
+  int _generationEpoch = 0;
 
   @override
   void onInit() {
