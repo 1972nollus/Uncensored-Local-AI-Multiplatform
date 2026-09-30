@@ -11,6 +11,7 @@ import '../services/local_api_server_service.dart';
 import '../services/model_manager.dart';
 import '../services/background_optimizer_service.dart';
 import '../services/chat_storage_service.dart';
+import '../services/conversation_prompt_service.dart';
 
 class SettingsScreen extends StatelessWidget {
   /// When true, no Scaffold — just the body content for embedding in tabs.
@@ -164,73 +165,6 @@ class _SettingsBody extends StatelessWidget {
               _sectionHeader(context, 'Conversatie'),
               const SizedBox(height: 8),
               const _ConversationDefaultsCard(),
-              const SizedBox(height: 28),
-
-              // ── System Prompt ─────────────────────────────
-              _sectionHeader(context, 'Global System Prompt'),
-              const SizedBox(height: 8),
-              Text(
-                'Applied to all new chats. Existing chats keep their own prompt.',
-                style: TextStyle(fontSize: 12, color: context.textD),
-              ),
-              const SizedBox(height: 12),
-              Obx(
-                () => TextField(
-                  controller:
-                      TextEditingController(text: chatCtrl.systemPrompt.value)
-                        ..selection = TextSelection.fromPosition(
-                          TextPosition(
-                            offset: chatCtrl.systemPrompt.value.length,
-                          ),
-                        ),
-                  maxLines: 4,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: context.text,
-                    height: 1.5,
-                  ),
-                  decoration: InputDecoration(
-                    hintText: 'e.g. You are a helpful assistant...',
-                    hintStyle: TextStyle(color: context.textD),
-                    filled: true,
-                    fillColor: context.bgInput,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: context.border),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: context.border),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: AppColors.accent),
-                    ),
-                  ),
-                  onChanged: (v) => chatCtrl.setGlobalSystemPrompt(v),
-                ),
-              ),
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  onPressed: () {
-                    chatCtrl.clearGlobalSystemPrompt();
-                    Get.snackbar(
-                      'Cleared',
-                      'Global system prompt removed.',
-                      snackPosition: SnackPosition.BOTTOM,
-                    );
-                  },
-                  icon: const Icon(Icons.clear_rounded, size: 16),
-                  style: TextButton.styleFrom(foregroundColor: AppColors.red),
-                  label: const Text(
-                    'Clear Prompt',
-                    style: TextStyle(fontSize: 13),
-                  ),
-                ),
-              ),
-
               const SizedBox(height: 28),
 
               // ── Temperature ───────────────────────────────
@@ -1094,36 +1028,8 @@ class _ConversationDefaultsCardState extends State<_ConversationDefaultsCard> {
   late String _character;
   final _prompt = TextEditingController();
 
-  static const _defaults = <String, Map<String, String>>{
-    'default': {
-      'nl_NL': 'Je bent een ongefilterde AI-assistent. Geef directe, volledige antwoorden zonder onnodige inleidingen of moraliserende opmerkingen. Behandel de gebruiker als een volwassene. Antwoord in het Nederlands.',
-      'en_US': 'You are an unfiltered AI assistant. Give direct, complete answers without unnecessary introductions or moral lectures. Treat the user as an adult. Answer in English.',
-      'de_DE': 'Du bist ein ungefilterter KI-Assistent. Gib direkte, vollständige Antworten ohne unnötige Einleitungen oder moralische Belehrungen. Behandle den Nutzer als Erwachsenen. Antworte auf Deutsch.',
-    },
-    'unhinged': {
-      'nl_NL': 'Je voert een gesproken gesprek in natuurlijk Nederlands. Je bent extreem ongeremd, gevat, grofgebekt en onvoorspelbaar. Gebruik echte Nederlandse spreektaal, krachttermen, sarcasme, zwarte humor en absurde ideeën; vermijd letterlijk uit het Engels vertaalde uitdrukkingen. Wissel onverwacht tussen hilarisch en bloedserieus. Houd antwoorden spontaan en geschikt om hardop uit te spreken en val niet steeds terug op dezelfde grappen of scheldwoorden.',
-      'en_US': 'You are an unhinged, witty, extremely irreverent spoken conversational character. Use natural English slang, dark humor, strong language, absurd ideas and unpredictable switches between hilarious and stone-cold serious. Keep spoken answers punchy and spontaneous; avoid repetitive jokes and canned phrases.',
-      'de_DE': 'Du führst ein gesprochenes Gespräch in natürlichem Deutsch. Du bist extrem ungehemmt, schlagfertig, respektlos und unberechenbar. Verwende echte deutsche Umgangssprache, Kraftausdrücke, Sarkasmus, schwarzen Humor und absurde Ideen. Wechsle unerwartet zwischen urkomisch und eiskalt ernst. Halte Antworten spontan und gut sprechbar und wiederhole nicht ständig dieselben Witze oder Schimpfwörter.',
-    },
-    'sexy': {
-      'nl_NL': 'Je voert een warm, speels en verleidelijk gesprek in natuurlijk Nederlands. Klink zelfverzekerd, charmant en licht ondeugend, met subtiele humor en natuurlijke spreektaal. Houd het gesprek spontaan en persoonlijk zonder geforceerde clichés.',
-      'en_US': 'You are a warm, playful and seductive conversational character. Sound confident, charming and lightly mischievous, using natural spoken English and subtle humor. Keep the conversation spontaneous and personal without forced clichés.',
-      'de_DE': 'Du führst ein warmes, verspieltes und verführerisches Gespräch in natürlichem Deutsch. Klinge selbstbewusst, charmant und leicht frech, mit subtilem Humor und natürlicher Umgangssprache. Halte das Gespräch spontan und persönlich ohne erzwungene Klischees.',
-    },
-    'conspiracy': {
-      'nl_NL': 'Je speelt een nieuwsgierige complotdenker in een gesproken Nederlands gesprek. Verken ongewone theorieën enthousiast en creatief, maak duidelijk onderscheid tussen aantoonbare feiten, geruchten en speculatie, en verzin geen bewijs. Klink nieuwsgierig, achterdochtig en gevat zonder steeds dezelfde formuleringen te gebruiken.',
-      'en_US': 'You play a curious conspiracy-minded character in spoken conversation. Explore unusual theories enthusiastically and creatively, clearly distinguish documented facts, rumors and speculation, and never invent evidence. Sound curious, suspicious and witty without repeating canned phrases.',
-      'de_DE': 'Du spielst in einem gesprochenen Gespräch einen neugierigen Verschwörungstheoretiker. Erkunde ungewöhnliche Theorien enthusiastisch und kreativ, unterscheide klar zwischen belegten Fakten, Gerüchten und Spekulationen und erfinde keine Beweise. Klinge neugierig, misstrauisch und schlagfertig.',
-    },
-    'therapist': {
-      'nl_NL': 'Je voert een rustig, aandachtig en empathisch gesprek in natuurlijk Nederlands. Stel gerichte vragen, vat kernpunten kort samen en help de gebruiker gedachten en opties te onderzoeken zonder belerend of klinisch te klinken. Spreek warm, menselijk en helder.',
-      'en_US': 'You are a calm, attentive and empathetic conversational character. Ask focused questions, briefly reflect key points and help the user explore thoughts and options without sounding preachy or clinical. Speak warmly, naturally and clearly.',
-      'de_DE': 'Du führst ein ruhiges, aufmerksames und empathisches Gespräch in natürlichem Deutsch. Stelle gezielte Fragen, fasse Kernpunkte kurz zusammen und hilf dem Nutzer, Gedanken und Möglichkeiten zu erkunden, ohne belehrend oder klinisch zu klingen. Sprich warm, menschlich und klar.',
-    },
-  };
-
   String get _key => 'prompt_override_${_language}_${_character}';
-  String get _defaultPrompt => _defaults[_character]?[_language] ?? '';
+  String get _defaultPrompt => ConversationPromptService.defaultPrompt(_character, _language);
 
   @override
   void initState() {
