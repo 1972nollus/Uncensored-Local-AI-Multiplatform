@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:llamadart/llamadart.dart';
 import 'package:path/path.dart' as p;
+import 'package:hive/hive.dart';
 
 import 'wakelock_service.dart';
 import 'chat_storage_service.dart';
@@ -20,6 +21,8 @@ class LlmService extends GetxService {
   final tokensPerSecond = 0.0.obs;
   final lastGenerationTokens = 0.obs;
   final lastGenerationSpeed = 0.0.obs;
+  final activeGpuLayers = 0.obs;
+  final autoPerformanceProfile = ''.obs;
 
   // ── Loading progress tracking ──────────────────────────────
   final isLoadingModel = false.obs;
@@ -169,21 +172,31 @@ class LlmService extends GetxService {
           parsedBackend = GpuBackend.cpu;
       }
 
-      // On iOS the native llama.cpp library uses Metal for layer offload.
-      // GpuBackend.cpu selects the Apple native library; gpuLayers controls offload.
-      // If an older install still has 0 saved, use a conservative iOS default.
-      final userGpuLayers = storage.gpuLayers;
+      // iOS: keep a performance profile per GGUF instead of forcing one
+      // global layer count on every model. A saved measured/resolved value wins.
+      // For a new model we retain the user's current value as a safe baseline;
+      // after a successful load the native resolved Metal layer count is cached.
+      final profileKey = 'perf_gpu_layers_${filename.hashCode.abs()}';
+      final settings = Hive.box('settings');
+      final cachedLayers = settings.get(profileKey) as num?;
+      final requestedGpuLayers = Platform.isIOS
+          ? (cachedLayers?.toInt() ?? storage.gpuLayers)
+          : storage.gpuLayers;
+      activeGpuLayers.value = requestedGpuLayers;
+      autoPerformanceProfile.value = cachedLayers == null
+          ? 'Nieuw model · veilige basis: $requestedGpuLayers GPU-layers'
+          : 'Opgeslagen profiel · $requestedGpuLayers GPU-layers';
 
       // Optimize threads: 4 for both generation and batch processing to keep memory stable.
       final params = ModelParams(
         contextSize: contextSize,
-        gpuLayers: userGpuLayers, 
+        gpuLayers: requestedGpuLayers, 
         preferredBackend: Platform.isIOS ? GpuBackend.cpu : parsedBackend,
         numberOfThreads: Platform.numberOfProcessors > 4 ? 4 : 0, 
         numberOfThreadsBatch: Platform.numberOfProcessors > 4 ? 4 : 0,
       );
 
-      log?.info('Backend=$parsedBackend, GPU layers=$userGpuLayers, ctx=$contextSize, threads=${Platform.numberOfProcessors > 4 ? 4 : 0}', source: 'LLM');
+      log?.info('Backend=$parsedBackend, GPU layers=$requestedGpuLayers, ctx=$contextSize, threads=${Platform.numberOfProcessors > 4 ? 4 : 0}', source: 'LLM');
 await _engine!.loadModel(path, modelParams: params);
 progressTimer.cancel();
 
@@ -196,9 +209,17 @@ try {
   log?.info(
     'Runtime backend=$activeBackend, '
     'resolved GPU layers=$resolvedGpuLayers, '
-    'requested GPU layers=$userGpuLayers',
+    'requested GPU layers=$requestedGpuLayers',
     source: 'LLM',
   );
+  activeGpuLayers.value = resolvedGpuLayers;
+  if (Platform.isIOS && resolvedGpuLayers > 0) {
+    await settings.put(profileKey, resolvedGpuLayers);
+    await settings.put('${profileKey}_context', contextSize);
+    await settings.put('${profileKey}_size', fileSize);
+    autoPerformanceProfile.value =
+        'Metal profiel · $resolvedGpuLayers GPU-layers · ctx $contextSize';
+  }
 } catch (e) {
   log?.warn(
     'Runtime diagnostics unavailable: $e',
