@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:audio_session/audio_session.dart' as audio_session;
 import 'package:audioplayers/audioplayers.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:get/get.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:flutter_tts/flutter_tts.dart';
@@ -27,6 +28,8 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
   final _tts = FlutterTts();
   final _supertonic = SupertonicTTS();
   final _supertonicPlayer = TTSAudioPlayer();
+  final _iosSupertonicPlayer = AudioPlayer();
+  File? _supertonicTempFile;
   final _supertonicState = SupertonicService.instance;
   final _chat = Get.find<ChatController>();
   final _models = Get.find<ModelController>();
@@ -113,9 +116,19 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
     if (_ttsEngine == 'supertonic') {
       if (await _ensureSupertonic()) {
         final result = await _supertonic.synthesize(text, language: _supertonicLanguage, voiceStyle: _supertonicVoice, config: const TTSConfig(speechSpeed: 1.05, denoisingSteps: 5));
-        final completed = _supertonicPlayer.playerStateStream.firstWhere((state) => state == PlayerState.completed);
-        await _supertonicPlayer.play(result);
-        await completed.timeout(const Duration(minutes: 2));
+        if (Platform.isIOS) {
+          final dir = await getTemporaryDirectory();
+          final file = File('${dir.path}/supertonic_output.wav');
+          await file.writeAsBytes(result.toWavBytes(), flush: true);
+          _supertonicTempFile = file;
+          final completed = _iosSupertonicPlayer.onPlayerComplete.first;
+          await _iosSupertonicPlayer.play(DeviceFileSource(file.path));
+          await completed.timeout(const Duration(minutes: 2));
+        } else {
+          final completed = _supertonicPlayer.playerStateStream.firstWhere((state) => state == PlayerState.completed);
+          await _supertonicPlayer.play(result);
+          await completed.timeout(const Duration(minutes: 2));
+        }
         return;
       }
     }
@@ -126,6 +139,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
   Future<void> _stopSpeaking() async {
     await _tts.stop();
     await _supertonicPlayer.stop();
+    await _iosSupertonicPlayer.stop();
   }
 
   Future<void> _previewVoice() async {
@@ -381,6 +395,8 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
     _speech.stop();
     _tts.stop();
     _supertonicPlayer.stop();
+    _iosSupertonicPlayer.dispose();
+    try { _supertonicTempFile?.deleteSync(); } catch (_) {}
     _pulse.dispose();
     super.dispose();
   }
