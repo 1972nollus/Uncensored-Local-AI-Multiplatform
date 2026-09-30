@@ -176,7 +176,7 @@ class LlmService extends GetxService {
       // global layer count on every model. A saved measured/resolved value wins.
       // For a new model we retain the user's current value as a safe baseline;
       // after a successful load the native resolved Metal layer count is cached.
-      final profileKey = 'perf_gpu_layers_${filename.hashCode.abs()}';
+      final profileKey = 'perf_gpu_layers_$filename';
       final settings = Hive.box('settings');
       final cachedLayers = settings.get(profileKey) as num?;
       final requestedGpuLayers = Platform.isIOS
