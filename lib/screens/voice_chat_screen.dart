@@ -29,6 +29,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
   bool _processing = false;
   bool _speaking = false;
   bool _submitted = false;
+  bool _turnCancelled = false;
   String _recognized = '';
   String _reply = '';
   String _status = 'Spraakmodus starten...';
@@ -139,6 +140,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
       return;
     }
     _submitted = false;
+    _turnCancelled = false;
     _recognized = '';
     try {
       final ready = await _speech.initialize(
@@ -205,7 +207,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
         modelFilename: _models.selectedModelFilename.value,
         systemPromptOverride: _localizedPrompt(),
       );
-      if (!_active || !mounted) return;
+      if (!_active || !mounted || _turnCancelled) return;
       final answer = _chat.activeChat?.messages.last.content.trim() ?? '';
       if (answer.isEmpty || answer.startsWith('⚠')) {
         setState(() { _reply = answer; _status = 'Geen antwoord. Tik om opnieuw te spreken.'; });
@@ -221,7 +223,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
       _processing = false;
       _speaking = false;
     }
-    if (_active && mounted) {
+    if (_active && mounted && !_turnCancelled) {
       setState(() => _status = 'Volgende vraag...');
       await Future.delayed(const Duration(milliseconds: 350));
       if (_active && mounted) await _listen();
@@ -232,6 +234,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
     if (_listening) {
       // Cancel this recognition turn completely. A late finalResult must not be sent.
       _submitted = true;
+      _turnCancelled = true;
       await _speech.cancel();
       if (mounted) setState(() {
         _listening = false;
@@ -242,6 +245,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
       return;
     }
     if (_speaking) {
+      _turnCancelled = true;
       await _tts.stop();
       if (mounted) setState(() {
         _speaking = false;
@@ -250,6 +254,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
       return;
     }
     if (_processing) {
+      _turnCancelled = true;
       _chat.stopGeneration();
       if (mounted) setState(() {
         _processing = false;
