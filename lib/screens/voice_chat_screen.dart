@@ -387,38 +387,82 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
               AnimatedBuilder(
                 animation: _pulse,
                 builder: (_, __) {
-                  final wave = _listening
-                      ? (0.06 + _level * 0.32 + _pulse.value * 0.06)
-                      : _speaking ? 0.16 * _pulse.value : 0.035 * _pulse.value;
+                  final phase = _pulse.value;
+                  final activity = _listening
+                      ? (0.10 + _level * 0.30 + phase * 0.05)
+                      : _processing
+                          ? (0.08 + phase * 0.10)
+                          : _speaking
+                              ? (0.10 + phase * 0.16)
+                              : (0.02 + phase * 0.025);
+                  final coreSize = 166.0 + activity * 125;
+                  final haloSize = coreSize + 24 + activity * 55;
+                  final listeningScale = _listening ? 1.0 + _level * 0.07 : 1.0;
                   return GestureDetector(
                     onTap: _toggle,
                     child: SizedBox(
-                      width: 240,
-                      height: 240,
-                      child: Center(
-                        child: Container(
-                          width: 160 + wave * 160,
-                          height: 160 + wave * 160,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: const RadialGradient(
-                              colors: [Color(0xFFAD9CFF), Color(0xFF6254E9), Color(0xFF34338B)],
-                              stops: [0.05, 0.65, 1],
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: color.withValues(alpha: 0.32 + wave),
-                                blurRadius: 28 + wave * 80,
-                                spreadRadius: wave * 24,
+                      width: 260,
+                      height: 260,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 90),
+                            width: haloSize,
+                            height: haloSize,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: RadialGradient(
+                                colors: [
+                                  color.withValues(alpha: 0.24 + activity * 0.30),
+                                  color.withValues(alpha: 0.07),
+                                  Colors.transparent,
+                                ],
+                                stops: const [0.0, 0.58, 1.0],
                               ),
-                            ],
+                            ),
                           ),
-                          child: Icon(
-                            (_speaking || _processing || _listening) ? Icons.stop_rounded : Icons.mic_rounded,
-                            size: 48,
-                            color: Colors.white,
+                          Transform.scale(
+                            scale: listeningScale,
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 85),
+                              curve: Curves.easeOut,
+                              width: coreSize,
+                              height: coreSize * (_listening ? 0.96 + _level * 0.07 : 1.0),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(coreSize * 0.48),
+                                gradient: RadialGradient(
+                                  center: Alignment(-0.18 + phase * 0.18, -0.22 + phase * 0.12),
+                                  colors: const [
+                                    Color(0xFFC2B7FF),
+                                    Color(0xFF7767F2),
+                                    Color(0xFF4942C7),
+                                    Color(0xFF29296F),
+                                  ],
+                                  stops: const [0.0, 0.38, 0.73, 1.0],
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: color.withValues(alpha: 0.25 + activity * 0.55),
+                                    blurRadius: 30 + activity * 85,
+                                    spreadRadius: 2 + activity * 22,
+                                  ),
+                                ],
+                              ),
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 180),
+                                child: Icon(
+                                  (_speaking || _processing || _listening)
+                                      ? Icons.stop_rounded
+                                      : Icons.mic_rounded,
+                                  key: ValueKey(_speaking || _processing || _listening),
+                                  size: 46,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
                           ),
-                        ),
+                        ],
                       ),
                     ),
                   );
