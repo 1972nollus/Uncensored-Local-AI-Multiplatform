@@ -158,6 +158,11 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
   }
 
   Future<void> _voiceSettings() async {
+    final settings = Hive.box('settings');
+    _ttsEngine = settings.get('voice_tts_engine', defaultValue: 'apple') as String;
+    _supertonicVoice = settings.get('voice_supertonic_voice', defaultValue: 'F1') as String;
+    _voiceStyle = settings.get('voice_apple_style', defaultValue: 'expressive') as String;
+    _voiceId = settings.get('voice_apple_id') as String?;
     await _speech.stop();
     if (mounted) setState(() => _listening = false);
     try {
