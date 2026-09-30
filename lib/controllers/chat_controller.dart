@@ -98,7 +98,8 @@ class ChatController extends GetxController {
         .map((m) => m.toLlamaMessage())
         .toList();
 
-    // Start generation
+    // Start generation. The epoch invalidates late native chunks after Stop.
+    final generationEpoch = ++_generationEpoch;
     isGenerating.value = true;
     streamedResponse.value = '';
 
@@ -114,6 +115,7 @@ class ChatController extends GetxController {
       );
 
       await for (final token in stream) {
+        if (generationEpoch != _generationEpoch) break;
         streamedResponse.value += token;
         aiMsg.content = streamedResponse.value;
         // Throttle UI refreshes
@@ -142,8 +144,11 @@ class ChatController extends GetxController {
 
   /// Stop current generation.
   Future<void> stopGeneration() async {
-    await _llm.stopGeneration();
+    // Invalidate the current consumer immediately so late llama.cpp chunks can
+    // no longer mutate the visible chat while native cancellation unwinds.
+    _generationEpoch++;
     isGenerating.value = false;
+    await _llm.stopGeneration();
   }
 
   /// Update the system prompt for the active chat.
