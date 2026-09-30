@@ -110,11 +110,12 @@ class ModelController extends GetxController {
 
   /// Load a model into the LLM engine.
   Future<void> loadModel(String filename) async {
-    // If already loading something, cancel it first
-    if (isLoadingModel.value) {
-      cancelLoadModel();
-      // Small delay to let cancellation propagate
-      await Future.delayed(const Duration(milliseconds: 200));
+    // Serialize model switches. Starting a second native load while the first
+    // one is tearing down can exhaust memory or leave llama.cpp in a bad state.
+    if (isLoadingModel.value || _llm.isLoadingModel.value) {
+      Get.snackbar('Model wisselen', 'Wacht tot de huidige modelactie klaar is.',
+          snackPosition: SnackPosition.BOTTOM);
+      return;
     }
 
     loadingModelFilename.value = filename;
@@ -136,6 +137,14 @@ class ModelController extends GetxController {
         }
       }
 
+      // Explicitly free the active model before loading another one.
+      if (_llm.isLoaded.value || _llm.loadedModelPath.value.isNotEmpty) {
+        loadingStatusMsg.value = 'Huidig model stoppen...';
+        await _llm.unloadModel();
+        await Future.delayed(const Duration(milliseconds: 700));
+      }
+
+      loadingStatusMsg.value = 'Nieuw model laden...';
       await _llm.loadModel(path);
 
       // Check if loading was cancelled
