@@ -5,6 +5,7 @@ import '../models/chat_model.dart';
 import '../models/message_model.dart';
 import '../services/llm_service.dart';
 import '../services/chat_storage_service.dart';
+import '../services/conversation_prompt_service.dart';
 
 class ChatController extends GetxController {
   final LlmService _llm = Get.find<LlmService>();
@@ -24,7 +25,8 @@ class ChatController extends GetxController {
     super.onInit();
     _loadChats();
     temperature.value = _storage.defaultTemperature;
-    systemPrompt.value = _storage.globalSystemPrompt;
+    // Global Prompt is retired; Settings conversation prompt is authoritative.
+    systemPrompt.value = ConversationPromptService.currentPrompt();
   }
 
   void _loadChats() {
@@ -44,7 +46,7 @@ class ChatController extends GetxController {
   void newChat() {
     final chat = ChatModel(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      systemPrompt: systemPrompt.value,
+      systemPrompt: '',
     );
     chats.insert(0, chat);
     _storage.saveChat(chat);
@@ -56,7 +58,7 @@ class ChatController extends GetxController {
     activeChatId.value = id;
     final chat = activeChat;
     if (chat != null) {
-      systemPrompt.value = chat.systemPrompt;
+      systemPrompt.value = ConversationPromptService.currentPrompt();
     }
   }
 
@@ -106,9 +108,7 @@ class ChatController extends GetxController {
     try {
       final stream = _llm.generate(
         messages: history,
-        systemPrompt: systemPromptOverride ?? (chat.systemPrompt.isNotEmpty
-            ? chat.systemPrompt
-            : systemPrompt.value),
+        systemPrompt: systemPromptOverride ?? ConversationPromptService.currentPrompt(),
         temperature: temperature.value,
       );
 
