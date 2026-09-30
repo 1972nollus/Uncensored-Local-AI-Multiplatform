@@ -430,7 +430,15 @@ if (_loadingCancelled) {
     _generateSub?.cancel();
     _generateSub = null;
     _engine?.cancelGeneration();
-    isGenerating.value = false;
+
+    // Do not clear isGenerating here. The active generate() iterator owns that
+    // flag and clears it in its finally block after llama.cpp has actually
+    // unwound. Starting another request before then causes
+    // "Another generation is already in progress".
+    final deadline = DateTime.now().add(const Duration(seconds: 3));
+    while (isGenerating.value && DateTime.now().isBefore(deadline)) {
+      await Future.delayed(const Duration(milliseconds: 40));
+    }
   }
 
   /// Full native teardown — dispose engine AND backend to prevent stale state.
