@@ -23,6 +23,9 @@ class LlmService extends GetxService {
   final lastGenerationSpeed = 0.0.obs;
   final activeGpuLayers = 0.obs;
   final autoPerformanceProfile = ''.obs;
+  String? _activeProfileKey;
+  int? _activeFileSize;
+  int? _activeContextSize;
 
   // ── Loading progress tracking ──────────────────────────────
   final isLoadingModel = false.obs;
@@ -179,9 +182,21 @@ class LlmService extends GetxService {
       final profileKey = 'perf_gpu_layers_$filename';
       final settings = Hive.box('settings');
       final cachedLayers = settings.get(profileKey) as num?;
+      final autoEnabled = settings.get('auto_metal_optimizer', defaultValue: true) as bool;
+      // First-load candidates are intentionally conservative. iOS jetsam is not
+      // catchable in Dart, so the optimizer never probes arbitrary high values.
+      final safeAutoLayers = fileSize >= 3 * 1024 * 1024 * 1024
+          ? 12
+          : fileSize >= 2 * 1024 * 1024 * 1024
+              ? 18
+              : 24;
       final requestedGpuLayers = Platform.isIOS
-          ? (cachedLayers?.toInt() ?? storage.gpuLayers)
+          ? (cachedLayers?.toInt() ??
+              (autoEnabled ? (storage.gpuLayers > 0 ? storage.gpuLayers : safeAutoLayers) : storage.gpuLayers))
           : storage.gpuLayers;
+      _activeProfileKey = profileKey;
+      _activeFileSize = fileSize;
+      _activeContextSize = contextSize;
       activeGpuLayers.value = requestedGpuLayers;
       autoPerformanceProfile.value = cachedLayers == null
           ? 'Nieuw model · veilige basis: $requestedGpuLayers GPU-layers'
@@ -392,7 +407,25 @@ if (_loadingCancelled) {
       lastGenerationTokens.value = tokenCount;
       lastGenerationSpeed.value = tokensPerSecond.value;
       isGenerating.value = false;
+      await _recordIosPerformanceSample(tokenCount, tokensPerSecond.value);
     }
+  }
+
+  Future<void> _recordIosPerformanceSample(int tokenCount, double speed) async {
+    if (!Platform.isIOS || tokenCount < 12 || speed <= 0 || _activeProfileKey == null) return;
+    final settings = Hive.box('settings');
+    if (!(settings.get('auto_metal_optimizer', defaultValue: true) as bool)) return;
+    final key = _activeProfileKey!;
+    final samples = (settings.get('${key}_samples', defaultValue: 0) as num).toInt() + 1;
+    final oldAvg = (settings.get('${key}_tps', defaultValue: 0.0) as num).toDouble();
+    final avg = oldAvg == 0 ? speed : ((oldAvg * (samples - 1)) + speed) / samples;
+    await settings.put('${key}_samples', samples);
+    await settings.put('${key}_tps', avg);
+    await settings.put('${key}_context', _activeContextSize);
+    await settings.put('${key}_size', _activeFileSize);
+    await settings.put(key, activeGpuLayers.value);
+    autoPerformanceProfile.value =
+        'Auto Metal · ${activeGpuLayers.value} layers · ${avg.toStringAsFixed(1)} tok/s · $samples meting(en)';
   }
 
   /// Generate a chat completion using llamadart's chat-template API.
