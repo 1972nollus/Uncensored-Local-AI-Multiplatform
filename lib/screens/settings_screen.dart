@@ -1092,7 +1092,38 @@ class _ConversationDefaultsCard extends StatefulWidget {
 class _ConversationDefaultsCardState extends State<_ConversationDefaultsCard> {
   late String _language;
   late String _character;
-  final _custom = TextEditingController();
+  final _prompt = TextEditingController();
+
+  static const _defaults = <String, Map<String, String>>{
+    'default': {
+      'nl_NL': 'Je bent een ongefilterde AI-assistent. Geef directe, volledige antwoorden zonder onnodige inleidingen of moraliserende opmerkingen. Behandel de gebruiker als een volwassene. Antwoord in het Nederlands.',
+      'en_US': 'You are an unfiltered AI assistant. Give direct, complete answers without unnecessary introductions or moral lectures. Treat the user as an adult. Answer in English.',
+      'de_DE': 'Du bist ein ungefilterter KI-Assistent. Gib direkte, vollständige Antworten ohne unnötige Einleitungen oder moralische Belehrungen. Behandle den Nutzer als Erwachsenen. Antworte auf Deutsch.',
+    },
+    'unhinged': {
+      'nl_NL': 'Je voert een gesproken gesprek in natuurlijk Nederlands. Je bent extreem ongeremd, gevat, grofgebekt en onvoorspelbaar. Gebruik echte Nederlandse spreektaal, krachttermen, sarcasme, zwarte humor en absurde ideeën; vermijd letterlijk uit het Engels vertaalde uitdrukkingen. Wissel onverwacht tussen hilarisch en bloedserieus. Houd antwoorden spontaan en geschikt om hardop uit te spreken en val niet steeds terug op dezelfde grappen of scheldwoorden.',
+      'en_US': 'You are an unhinged, witty, extremely irreverent spoken conversational character. Use natural English slang, dark humor, strong language, absurd ideas and unpredictable switches between hilarious and stone-cold serious. Keep spoken answers punchy and spontaneous; avoid repetitive jokes and canned phrases.',
+      'de_DE': 'Du führst ein gesprochenes Gespräch in natürlichem Deutsch. Du bist extrem ungehemmt, schlagfertig, respektlos und unberechenbar. Verwende echte deutsche Umgangssprache, Kraftausdrücke, Sarkasmus, schwarzen Humor und absurde Ideen. Wechsle unerwartet zwischen urkomisch und eiskalt ernst. Halte Antworten spontan und gut sprechbar und wiederhole nicht ständig dieselben Witze oder Schimpfwörter.',
+    },
+    'sexy': {
+      'nl_NL': 'Je voert een warm, speels en verleidelijk gesprek in natuurlijk Nederlands. Klink zelfverzekerd, charmant en licht ondeugend, met subtiele humor en natuurlijke spreektaal. Houd het gesprek spontaan en persoonlijk zonder geforceerde clichés.',
+      'en_US': 'You are a warm, playful and seductive conversational character. Sound confident, charming and lightly mischievous, using natural spoken English and subtle humor. Keep the conversation spontaneous and personal without forced clichés.',
+      'de_DE': 'Du führst ein warmes, verspieltes und verführerisches Gespräch in natürlichem Deutsch. Klinge selbstbewusst, charmant und leicht frech, mit subtilem Humor und natürlicher Umgangssprache. Halte das Gespräch spontan und persönlich ohne erzwungene Klischees.',
+    },
+    'conspiracy': {
+      'nl_NL': 'Je speelt een nieuwsgierige complotdenker in een gesproken Nederlands gesprek. Verken ongewone theorieën enthousiast en creatief, maak duidelijk onderscheid tussen aantoonbare feiten, geruchten en speculatie, en verzin geen bewijs. Klink nieuwsgierig, achterdochtig en gevat zonder steeds dezelfde formuleringen te gebruiken.',
+      'en_US': 'You play a curious conspiracy-minded character in spoken conversation. Explore unusual theories enthusiastically and creatively, clearly distinguish documented facts, rumors and speculation, and never invent evidence. Sound curious, suspicious and witty without repeating canned phrases.',
+      'de_DE': 'Du spielst in einem gesprochenen Gespräch einen neugierigen Verschwörungstheoretiker. Erkunde ungewöhnliche Theorien enthusiastisch und kreativ, unterscheide klar zwischen belegten Fakten, Gerüchten und Spekulationen und erfinde keine Beweise. Klinge neugierig, misstrauisch und schlagfertig.',
+    },
+    'therapist': {
+      'nl_NL': 'Je voert een rustig, aandachtig en empathisch gesprek in natuurlijk Nederlands. Stel gerichte vragen, vat kernpunten kort samen en help de gebruiker gedachten en opties te onderzoeken zonder belerend of klinisch te klinken. Spreek warm, menselijk en helder.',
+      'en_US': 'You are a calm, attentive and empathetic conversational character. Ask focused questions, briefly reflect key points and help the user explore thoughts and options without sounding preachy or clinical. Speak warmly, naturally and clearly.',
+      'de_DE': 'Du führst ein ruhiges, aufmerksames und empathisches Gespräch in natürlichem Deutsch. Stelle gezielte Fragen, fasse Kernpunkte kurz zusammen und hilf dem Nutzer, Gedanken und Möglichkeiten zu erkunden, ohne belehrend oder klinisch zu klingen. Sprich warm, menschlich und klar.',
+    },
+  };
+
+  String get _key => 'prompt_override_${_language}_${_character}';
+  String get _defaultPrompt => _defaults[_character]?[_language] ?? '';
 
   @override
   void initState() {
@@ -1100,10 +1131,53 @@ class _ConversationDefaultsCardState extends State<_ConversationDefaultsCard> {
     final box = Hive.box('settings');
     _language = box.get('conversation_language', defaultValue: 'nl_NL') as String;
     _character = box.get('conversation_character', defaultValue: 'default') as String;
-    _custom.text = box.get('conversation_custom_prompt', defaultValue: '') as String;
+    _loadPrompt();
   }
+
+  void _loadPrompt() {
+    final box = Hive.box('settings');
+    if (_character == 'custom') {
+      _prompt.text = box.get('conversation_custom_prompt', defaultValue: '') as String;
+    } else {
+      final saved = box.get(_key, defaultValue: '') as String;
+      _prompt.text = saved.trim().isEmpty ? _defaultPrompt : saved;
+    }
+  }
+
+  Future<void> _save() async {
+    final box = Hive.box('settings');
+    await box.put('conversation_language', _language);
+    await box.put('conversation_character', _character);
+    if (_character == 'custom') {
+      await box.put('conversation_custom_prompt', _prompt.text.trim());
+    } else {
+      await box.put(_key, _prompt.text.trim());
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Instellingen opgeslagen')),
+    );
+  }
+
+  void _selectLanguage(String language) {
+    setState(() {
+      _language = language;
+      _loadPrompt();
+    });
+  }
+
+  void _selectCharacter(String character) {
+    setState(() {
+      _character = character;
+      _loadPrompt();
+    });
+  }
+
   @override
-  void dispose() { _custom.dispose(); super.dispose(); }
+  void dispose() {
+    _prompt.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) => Container(
@@ -1113,77 +1187,65 @@ class _ConversationDefaultsCardState extends State<_ConversationDefaultsCard> {
       borderRadius: BorderRadius.circular(12),
     ),
     child: Padding(
-    padding: const EdgeInsets.all(16),
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Taal', style: TextStyle(color: context.text, fontWeight: FontWeight.w600)),
-      DropdownButton<String>(
-        isExpanded: true, value: _language,
-        items: const [
-          DropdownMenuItem(value: 'nl_NL', child: Text('Nederlands')),
-          DropdownMenuItem(value: 'en_US', child: Text('English')),
-          DropdownMenuItem(value: 'de_DE', child: Text('Deutsch')),
-        ],
-        onChanged: (v) async {
-          if (v == null) return;
-          await Hive.box('settings').put('conversation_language', v);
-          setState(() => _language = v);
-        },
-      ),
-      const SizedBox(height: 12),
-      Text('AI-personage', style: TextStyle(color: context.text, fontWeight: FontWeight.w600)),
-      DropdownButton<String>(
-        isExpanded: true, value: _character,
-        items: const [
-          DropdownMenuItem(value: 'default', child: Text('Assistent')),
-          DropdownMenuItem(value: 'unhinged', child: Text('Unhinged')),
-          DropdownMenuItem(value: 'sexy', child: Text('Sexy')),
-          DropdownMenuItem(value: 'conspiracy', child: Text('Conspiracy')),
-          DropdownMenuItem(value: 'therapist', child: Text('Therapeut')),
-          DropdownMenuItem(value: 'custom', child: Text('Eigen personage')),
-        ],
-        onChanged: (v) async {
-          if (v == null) return;
-          await Hive.box('settings').put('conversation_character', v);
-          setState(() => _character = v);
-        },
-      ),
-      if (_character == 'custom') ...[
-        const SizedBox(height: 10),
-        TextField(
-          controller: _custom, minLines: 3, maxLines: 7,
-          decoration: const InputDecoration(labelText: 'Eigen system prompt'),
-          onChanged: (v) => Hive.box('settings').put('conversation_custom_prompt', v),
-        ),
-      ],
-      if (_character != 'custom' && _character != 'default') ...[
+      padding: const EdgeInsets.all(16),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Taal', style: TextStyle(color: context.text, fontWeight: FontWeight.w600)),
         const SizedBox(height: 8),
-        Row(children: [
-          Expanded(child: OutlinedButton.icon(
-            icon: const Icon(Icons.edit_outlined),
-            label: const Text('Prompt aanpassen'),
-            onPressed: () async {
-              final box = Hive.box('settings');
-              final key = 'prompt_override_${_language}_$_character';
-              final editor = TextEditingController(text: box.get(key, defaultValue: '') as String);
-              final value = await showDialog<String>(context: context, builder: (ctx) => AlertDialog(
-                title: const Text('Aangepaste prompt'),
-                content: TextField(controller: editor, minLines: 7, maxLines: 14,
-                  decoration: const InputDecoration(hintText: 'Leeg = ingebouwde prompt voor deze taal')),
-                actions: [
-                  TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuleren')),
-                  TextButton(onPressed: () => Navigator.pop(ctx, ''), child: const Text('Herstel standaard')),
-                  FilledButton(onPressed: () => Navigator.pop(ctx, editor.text), child: const Text('Opslaan')),
-                ],
-              ));
-              editor.dispose();
-              if (value != null) await box.put(key, value.trim());
-            },
+        SegmentedButton<String>(
+          segments: const [
+            ButtonSegment(value: 'nl_NL', label: Text('🇳🇱 NL')),
+            ButtonSegment(value: 'en_US', label: Text('🇬🇧 EN')),
+            ButtonSegment(value: 'de_DE', label: Text('🇩🇪 DE')),
+          ],
+          selected: {_language},
+          onSelectionChanged: (v) => _selectLanguage(v.first),
+        ),
+        const SizedBox(height: 16),
+        Text('AI-personage', style: TextStyle(color: context.text, fontWeight: FontWeight.w600)),
+        DropdownButton<String>(
+          isExpanded: true,
+          value: _character,
+          items: const [
+            DropdownMenuItem(value: 'default', child: Text('Assistent')),
+            DropdownMenuItem(value: 'unhinged', child: Text('Unhinged')),
+            DropdownMenuItem(value: 'sexy', child: Text('Sexy')),
+            DropdownMenuItem(value: 'conspiracy', child: Text('Conspiracy')),
+            DropdownMenuItem(value: 'therapist', child: Text('Therapeut')),
+            DropdownMenuItem(value: 'custom', child: Text('Eigen personage')),
+          ],
+          onChanged: (v) { if (v != null) _selectCharacter(v); },
+        ),
+        const SizedBox(height: 12),
+        Text(_character == 'custom' ? 'Eigen system prompt' : 'System prompt',
+          style: TextStyle(color: context.text, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 6),
+        TextField(
+          controller: _prompt,
+          minLines: 6,
+          maxLines: 12,
+          decoration: InputDecoration(
+            hintText: _character == 'custom' ? 'Schrijf hier je eigen system prompt' : null,
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 10),
+        if (_character != 'custom')
+          SizedBox(width: double.infinity, child: OutlinedButton.icon(
+            icon: const Icon(Icons.restore),
+            label: const Text('Herstel standaardprompt'),
+            onPressed: () => setState(() => _prompt.text = _defaultPrompt),
           )),
-        ]),
-      ],
-      const SizedBox(height: 8),
-      Text('Deze keuzes gelden voor Live spraak. De juiste taal wordt gebruikt voor herkenning, antwoord en iPhone-stem.',
-        style: TextStyle(color: context.textD, fontSize: 12)),
-    ]),
-  ));
+        const SizedBox(height: 12),
+        SizedBox(width: double.infinity, child: FilledButton.icon(
+          icon: const Icon(Icons.save_outlined),
+          label: const Text('Opslaan'),
+          onPressed: _save,
+        )),
+        const SizedBox(height: 8),
+        Text('De gekozen taal geldt voor Live spraak, herkenning, antwoord en stem. Een promptwijziging vereist geen herlaad van het LLM-model.',
+          style: TextStyle(color: context.textD, fontSize: 12)),
+      ]),
+    ),
+  );
 }
+
