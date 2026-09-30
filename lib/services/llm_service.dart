@@ -444,7 +444,7 @@ if (_loadingCancelled) {
   /// Full native teardown — dispose engine AND backend to prevent stale state.
   Future<void> _fullTeardown() async {
     // Never dispose a model while native generation is still running.
-    stopGeneration();
+    await stopGeneration();
     await Future.delayed(const Duration(milliseconds: 100));
     if (_engine != null) {
       try {
