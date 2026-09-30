@@ -24,6 +24,18 @@
     "recommended": false
   },
   {
+    "id": "dolphin3-llama32-3b-q5km",
+    "name": "Dolphin 3.0 Llama 3.2 3B Q5_K_M",
+    "filename": "Dolphin3.0-Llama3.2-3B-Q5_K_M.gguf",
+    "url": "https://huggingface.co/bartowski/Dolphin3.0-Llama3.2-3B-GGUF/resolve/main/Dolphin3.0-Llama3.2-3B-Q5_K_M.gguf",
+    "sizeGb": 2.32,
+    "minRamGb": 4,
+    "label": "UNCENSORED",
+    "badge": "HIGHER QUALITY · 3B",
+    "systemPrompt": "",
+    "recommended": false
+  },
+  {
     "id": "gemma-4-heretic",
     "name": "Gemma 4 E4B Heretic",
     "filename": "gemma-4-E4B-it-ultra-uncensored-heretic-Q4_K_M.gguf",
