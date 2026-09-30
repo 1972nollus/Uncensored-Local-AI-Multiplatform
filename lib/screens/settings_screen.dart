@@ -708,7 +708,497 @@ class _SettingsBody extends StatelessWidget {
 
 class _SupertonicDownloadCard extends StatefulWidget {
   const _SupertonicDownloadCard();
+  @override State<_SupertonicDownloadCard> createState() => _SupertonicDownloadCardState();
+}
+class _SupertonicDownloadCardState extends State<_SupertonicDownloadCard> {
+  final _service = SupertonicService.instance;
+  @override void initState() { super.initState(); _service.refresh(); }
+  @override Widget build(BuildContext context) => ValueListenableBuilder<bool>(
+    valueListenable: _service.downloading,
+    builder: (_, downloading, __) => ValueListenableBuilder<bool>(
+      valueListenable: _service.installed,
+      builder: (_, installed, __) => Container(
+        decoration: BoxDecoration(color: context.bgPanel, border: Border.all(color: context.border), borderRadius: BorderRadius.circular(12)),
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Icon(installed ? Icons.check_circle_rounded : Icons.graphic_eq_rounded, color: installed ? AppColors.green : AppColors.accent),
+            const SizedBox(width: 10),
+            Expanded(child: Text(installed ? 'Supertonic 3 is geïnstalleerd' : downloading ? 'Supertonic 3 downloaden...' : 'Supertonic 3 is nog niet geïnstalleerd', style: TextStyle(color: context.text, fontWeight: FontWeight.w600))),
+          ]),
+          if (downloading) ...[
+            const SizedBox(height: 14),
+            ValueListenableBuilder<double>(valueListenable: _service.progress, builder: (_, progress, __) => LinearProgressIndicator(value: progress, minHeight: 8, borderRadius: BorderRadius.circular(8))),
+            const SizedBox(height: 8),
+          ],
+          ValueListenableBuilder<String>(valueListenable: _service.detail, builder: (_, detail, __) => Text(detail, style: TextStyle(color: context.textD, fontSize: 12))),
+          const SizedBox(height: 14),
+          SizedBox(width: double.infinity, child: FilledButton.icon(
+            onPressed: installed || downloading ? null : () async { try { await _service.download(); } catch (_) {} },
+            icon: Icon(installed ? Icons.check_rounded : Icons.download_rounded),
+            label: Text(installed ? 'Geïnstalleerd' : downloading ? 'Downloaden...' : 'Download Supertonic 3 (~400 MB)'),
+          )),
+          const SizedBox(height: 8),
+          Text('De modellen en stemmen worden lokaal opgeslagen en hoeven na installatie niet opnieuw te worden gedownload.', style: TextStyle(color: context.textD, fontSize: 11)),
+        ]),
+      ),
+    ),
+  );
+}
+
+class _HardwareSettingsCard extends StatefulWidget {
+  final ChatStorageService storage;
+
+  const _HardwareSettingsCard({required this.storage});
 
   @override
-  State<_SupertonicDownloadCard> createState() => _SupertonicDownloadCardState();
+  State<_HardwareSettingsCard> createState() => _HardwareSettingsCardState();
 }
+
+class _HardwareSettingsCardState extends State<_HardwareSettingsCard> {
+  late String _backend;
+  late double _gpuLayers;
+  bool _iosMetalSelected = false;
+  bool _showManual = false;
+
+  // Auto-detect the best backend and GPU layers for this device
+  static Map<String, dynamic> _detectBestConfig() {
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      // Desktop: CPU is safest, Vulkan if available
+      return {'backend': 'cpu', 'gpuLayers': 0, 'reason': 'CPU mode — most compatible on desktop'};
+    }
+
+    // iOS llama.cpp builds use Metal natively. Keep the backend selector on
+    // CPU (the public llamadart 0.6.x enum exposes CPU/Vulkan/OpenCL), but
+    // enable layer offloading so the native Apple backend can use Metal.
+    if (Platform.isIOS) {
+      return {
+        'backend': 'cpu',
+        'gpuLayers': 0,
+        'reason': 'CPU baseline • 0 GPU layers; enable Metal manually to test.',
+      };
+    }
+
+    // Android: detect available processor count
+    final cores = Platform.numberOfProcessors;
+
+    if (cores >= 8) {
+      // High-end device (e.g. Snapdragon 8 Gen 2+, Dimensity 9000+)
+      return {
+        'backend': 'opencl',
+        'gpuLayers': 33,
+        'reason': 'OpenCL GPU — best for high-end SoC ($cores cores detected)',
+      };
+    } else if (cores >= 6) {
+      // Mid-range device
+      return {
+        'backend': 'cpu',
+        'gpuLayers': 0,
+        'reason': 'CPU mode — safe for mid-range devices ($cores cores)',
+      };
+    } else {
+      // Low-end device
+      return {
+        'backend': 'cpu',
+        'gpuLayers': 0,
+        'reason': 'CPU mode — optimized for lower-end devices ($cores cores)',
+      };
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _backend = widget.storage.backendType;
+    _gpuLayers = widget.storage.gpuLayers.toDouble();
+    _iosMetalSelected = Platform.isIOS && _gpuLayers > 0;
+  }
+
+  void _applyAutoConfig() {
+    final config = _detectBestConfig();
+    setState(() {
+      _backend = config['backend'] as String;
+      _gpuLayers = (config['gpuLayers'] as int).toDouble();
+      if (Platform.isIOS) _iosMetalSelected = false;
+    });
+    widget.storage.backendType = _backend;
+    widget.storage.gpuLayers = _gpuLayers.toInt();
+    Get.snackbar(
+      'Auto Config Applied',
+      config['reason'] as String,
+      snackPosition: SnackPosition.BOTTOM,
+      duration: const Duration(seconds: 2),
+    );
+  }
+
+  void _selectIosCompute(bool metal) {
+    setState(() {
+      _iosMetalSelected = metal;
+      _backend = 'cpu';
+      _gpuLayers = metal ? (_gpuLayers > 0 ? _gpuLayers : 2) : 0;
+    });
+    widget.storage.backendType = 'cpu';
+    widget.storage.gpuLayers = _gpuLayers.toInt();
+  }
+
+  void _saveBackend(String val) {
+    setState(() {
+      _backend = val;
+      if (val == 'cpu') _gpuLayers = 0;
+      else if (_gpuLayers == 0) _gpuLayers = 2;
+    });
+    widget.storage.backendType = val;
+    widget.storage.gpuLayers = _gpuLayers.toInt();
+  }
+
+  void _saveGpuLayers(double val) {
+    setState(() => _gpuLayers = val);
+    widget.storage.gpuLayers = val.toInt();
+  }
+
+  String get _currentConfigLabel {
+    switch (_backend) {
+      case 'vulkan':
+        return 'GPU (Vulkan) • ${_gpuLayers.toInt()} layers';
+      case 'opencl':
+        return 'GPU (OpenCL) • ${_gpuLayers.toInt()} layers';
+      default:
+        return Platform.isIOS && _gpuLayers > 0
+            ? 'Apple Metal • ${_gpuLayers.toInt()} layers'
+            : 'CPU Only';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final autoConfig = _detectBestConfig();
+
+    return Container(
+      decoration: BoxDecoration(
+        color: context.bgPanel,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: context.border),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Recommended Auto Config ──
+          Row(
+            children: [
+              Icon(Icons.auto_awesome_rounded, size: 18, color: AppColors.accent),
+              const SizedBox(width: 8),
+              Text(
+                'Compute Device',
+                style: TextStyle(color: context.text, fontSize: 15, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Current: $_currentConfigLabel',
+            style: TextStyle(color: context.textM, fontSize: 12),
+          ),
+          const SizedBox(height: 12),
+
+          // Recommended button
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _applyAutoConfig,
+              icon: const Icon(Icons.tune_rounded, size: 16),
+              label: const Text('Apply Recommended Settings'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.accent,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: AppColors.accent.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline_rounded, size: 14, color: AppColors.accent),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    autoConfig['reason'] as String,
+                    style: TextStyle(color: context.textM, fontSize: 11),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          // ── Manual Override Toggle ──
+          InkWell(
+            onTap: () => setState(() => _showManual = !_showManual),
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  Icon(
+                    _showManual ? Icons.expand_less : Icons.expand_more,
+                    size: 18,
+                    color: context.textM,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Manual Override',
+                    style: TextStyle(
+                      color: context.textM,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          if (_showManual) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                if (Platform.isIOS) ...[
+                  Expanded(child: ChoiceChip(label: const Text('CPU'), selected: !_iosMetalSelected, onSelected: (_) => _selectIosCompute(false))),
+                  const SizedBox(width: 8),
+                  Expanded(child: ChoiceChip(label: const Text('GPU (Metal)'), selected: _iosMetalSelected, onSelected: (_) => _selectIosCompute(true))),
+                ] else ...[
+                  _buildBackendButton('CPU', 'cpu'),
+                  const SizedBox(width: 8),
+                  _buildBackendButton('Vulkan', 'vulkan'),
+                  const SizedBox(width: 8),
+                  _buildBackendButton('OpenCL', 'opencl'),
+                ],
+              ],
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'GPU Layers',
+                  style: TextStyle(color: context.text, fontSize: 14),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: context.bgInput,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    _gpuLayers.toInt().toString(),
+                    style: TextStyle(color: context.text, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+            ),
+            SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                activeTrackColor: AppColors.accent,
+                inactiveTrackColor: context.border,
+                thumbColor: AppColors.accent,
+                overlayColor: AppColors.accent.withValues(alpha: 0.2),
+              ),
+              child: Slider(
+                value: _gpuLayers,
+                min: 0,
+                max: 99,
+                divisions: 99,
+                onChanged: (Platform.isIOS && !_iosMetalSelected) || (!Platform.isIOS && _backend == 'cpu') ? null : _saveGpuLayers,
+              ),
+            ),
+            Text(
+              'If the app crashes when loading a model, reduce GPU layers or switch to CPU. Reload the model after changing settings.',
+              style: TextStyle(color: context.textD, fontSize: 11, height: 1.4),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBackendButton(String label, String value) {
+    final selected = _backend == value;
+    return Expanded(
+      child: InkWell(
+        onTap: () => _saveBackend(value),
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.accent : context.bgInput,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: selected ? AppColors.accent : context.border,
+            ),
+          ),
+          child: Center(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: selected ? Colors.white : context.text,
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+
+
+class _ConversationDefaultsCard extends StatefulWidget {
+  const _ConversationDefaultsCard();
+  @override
+  State<_ConversationDefaultsCard> createState() => _ConversationDefaultsCardState();
+}
+
+class _ConversationDefaultsCardState extends State<_ConversationDefaultsCard> {
+  late String _language;
+  late String _character;
+  final _prompt = TextEditingController();
+
+  String get _key => 'prompt_override_${_language}_${_character}';
+  String get _defaultPrompt => ConversationPromptService.defaultPrompt(_character, _language);
+
+  @override
+  void initState() {
+    super.initState();
+    final box = Hive.box('settings');
+    _language = box.get('conversation_language', defaultValue: 'nl_NL') as String;
+    _character = box.get('conversation_character', defaultValue: 'default') as String;
+    _loadPrompt();
+  }
+
+  void _loadPrompt() {
+    final box = Hive.box('settings');
+    if (_character == 'custom') {
+      _prompt.text = box.get('conversation_custom_prompt', defaultValue: '') as String;
+    } else {
+      final saved = box.get(_key, defaultValue: '') as String;
+      _prompt.text = saved.trim().isEmpty ? _defaultPrompt : saved;
+    }
+  }
+
+  Future<void> _save() async {
+    final box = Hive.box('settings');
+    await box.put('conversation_language', _language);
+    await box.put('conversation_character', _character);
+    if (_character == 'custom') {
+      await box.put('conversation_custom_prompt', _prompt.text.trim());
+    } else {
+      await box.put(_key, _prompt.text.trim());
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Instellingen opgeslagen')),
+    );
+  }
+
+  void _selectLanguage(String language) {
+    setState(() {
+      _language = language;
+      _loadPrompt();
+    });
+  }
+
+  void _selectCharacter(String character) {
+    setState(() {
+      _character = character;
+      _loadPrompt();
+    });
+  }
+
+  @override
+  void dispose() {
+    _prompt.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      color: context.bgPanel,
+      border: Border.all(color: context.border),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Taal', style: TextStyle(color: context.text, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 8),
+        SegmentedButton<String>(
+          segments: const [
+            ButtonSegment(value: 'nl_NL', label: Text('🇳🇱 NL')),
+            ButtonSegment(value: 'en_US', label: Text('🇬🇧 EN')),
+            ButtonSegment(value: 'de_DE', label: Text('🇩🇪 DE')),
+          ],
+          selected: {_language},
+          onSelectionChanged: (v) => _selectLanguage(v.first),
+        ),
+        const SizedBox(height: 16),
+        Text('AI-personage', style: TextStyle(color: context.text, fontWeight: FontWeight.w600)),
+        DropdownButton<String>(
+          isExpanded: true,
+          value: _character,
+          items: const [
+            DropdownMenuItem(value: 'default', child: Text('Assistent')),
+            DropdownMenuItem(value: 'unhinged', child: Text('Unhinged')),
+            DropdownMenuItem(value: 'sexy', child: Text('Sexy')),
+            DropdownMenuItem(value: 'conspiracy', child: Text('Conspiracy')),
+            DropdownMenuItem(value: 'therapist', child: Text('Therapeut')),
+            DropdownMenuItem(value: 'custom', child: Text('Eigen personage')),
+          ],
+          onChanged: (v) { if (v != null) _selectCharacter(v); },
+        ),
+        const SizedBox(height: 12),
+        Text(_character == 'custom' ? 'Eigen system prompt' : 'System prompt',
+          style: TextStyle(color: context.text, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 6),
+        TextField(
+          controller: _prompt,
+          minLines: 6,
+          maxLines: 12,
+          decoration: InputDecoration(
+            hintText: _character == 'custom' ? 'Schrijf hier je eigen system prompt' : null,
+            border: const OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 10),
+        if (_character != 'custom')
+          SizedBox(width: double.infinity, child: OutlinedButton.icon(
+            icon: const Icon(Icons.restore),
+            label: const Text('Herstel standaardprompt'),
+            onPressed: () => setState(() => _prompt.text = _defaultPrompt),
+          )),
+        const SizedBox(height: 12),
+        SizedBox(width: double.infinity, child: FilledButton.icon(
+          icon: const Icon(Icons.save_outlined),
+          label: const Text('Opslaan'),
+          onPressed: _save,
+        )),
+        const SizedBox(height: 8),
+        Text('De gekozen taal geldt voor Live spraak, herkenning, antwoord en stem. Een promptwijziging vereist geen herlaad van het LLM-model.',
+          style: TextStyle(color: context.textD, fontSize: 12)),
+      ]),
+    ),
+  );
+}
+
