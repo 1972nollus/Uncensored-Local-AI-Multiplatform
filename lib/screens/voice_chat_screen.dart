@@ -65,7 +65,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
   Future<bool> _ensureSupertonic() async {
     if (_supertonicReady) return true;
     if (_supertonicLoading) return false;
-    if (!await _supertonicState.refresh()) {
+    if (!await SupertonicTTS.modelsReady()) {
       if (mounted) setState(() => _status = 'Download Supertonic 3 eerst via Settings.');
       return false;
     }
@@ -78,21 +78,16 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
     } catch (e) {
       if (mounted) setState(() => _status = 'Supertonic kon niet starten: $e');
       return false;
-    } finally {
-      _supertonicLoading = false;
-    }
+    } finally { _supertonicLoading = false; }
   }
 
-  Future<void> _saveVoiceSettings() async {
+  Future<void> _saveVoicePrefs() async {
     final box = Hive.box('settings');
     await box.put('voice_tts_engine', _ttsEngine);
     await box.put('voice_supertonic_voice', _supertonicVoice);
     await box.put('voice_apple_style', _voiceStyle);
-    if (_voiceId == null) {
-      await box.delete('voice_apple_id');
-    } else {
-      await box.put('voice_apple_id', _voiceId);
-    }
+    if (_voiceId == null) { await box.delete('voice_apple_id'); }
+    else { await box.put('voice_apple_id', _voiceId); }
   }
 
   Future<void> _speakText(String text) async {
