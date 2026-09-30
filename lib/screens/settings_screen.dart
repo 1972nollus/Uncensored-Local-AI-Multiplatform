@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:supertonic_flutter/supertonic_flutter.dart';
 
 import '../theme/app_colors.dart';
 import '../controllers/chat_controller.dart';
@@ -166,6 +167,11 @@ class _SettingsBody extends StatelessWidget {
               _sectionHeader(context, 'Conversatie'),
               const SizedBox(height: 8),
               const _ConversationDefaultsCard(),
+              const SizedBox(height: 28),
+
+              _sectionHeader(context, 'Supertonic 3 stemmen'),
+              const SizedBox(height: 8),
+              const _SupertonicDownloadCard(),
               const SizedBox(height: 28),
 
               // ── Supertonic 3 ──────────────────────────────
@@ -1258,3 +1264,70 @@ class _ConversationDefaultsCardState extends State<_ConversationDefaultsCard> {
   );
 }
 
+
+
+class _SupertonicDownloadCard extends StatefulWidget {
+  const _SupertonicDownloadCard();
+  @override State<_SupertonicDownloadCard> createState() => _SupertonicDownloadCardState();
+}
+class _SupertonicDownloadCardState extends State<_SupertonicDownloadCard> {
+  bool _checking = true, _ready = false, _downloading = false;
+  int _completed = 0, _total = 16;
+  double _fileProgress = 0;
+  String _file = '';
+  String? _error;
+  double get _overallProgress => _total <= 0 ? 0 : ((_completed + _fileProgress) / _total).clamp(0.0, 1.0);
+  @override void initState() { super.initState(); _check(); }
+  Future<void> _check() async {
+    try { final ready = await SupertonicTTS.modelsReady(); if (mounted) setState(() { _ready = ready; _checking = false; _error = null; }); }
+    catch (e) { if (mounted) setState(() { _checking = false; _error = e.toString(); }); }
+  }
+  Future<void> _download() async {
+    if (_downloading) return;
+    setState(() { _downloading = true; _error = null; _completed = 0; _total = 16; _fileProgress = 0; _file = ''; });
+    try {
+      await SupertonicTTS.preDownloadModels(onProgress: (completed, total, file, fileProgress) {
+        if (mounted) setState(() { _completed = completed; _total = total; _file = file; _fileProgress = fileProgress.clamp(0.0, 1.0); });
+      });
+      final ready = await SupertonicTTS.modelsReady();
+      if (mounted) setState(() { _ready = ready; _downloading = false; if (ready) { _completed = _total; _fileProgress = 0; _file = ''; } });
+    } catch (e) { if (mounted) setState(() { _downloading = false; _error = e.toString(); }); }
+  }
+  @override Widget build(BuildContext context) {
+    final pct = (_overallProgress * 100).round();
+    final shownFile = (_completed + 1).clamp(1, _total);
+    return Container(
+      decoration: BoxDecoration(color: context.bgPanel, border: Border.all(color: context.border), borderRadius: BorderRadius.circular(12)),
+      padding: const EdgeInsets.all(16),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(_ready ? Icons.check_circle_rounded : Icons.graphic_eq_rounded, color: _ready ? AppColors.green : AppColors.accent),
+          const SizedBox(width: 10),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Supertonic 3', style: TextStyle(color: context.text, fontWeight: FontWeight.w600, fontSize: 15)),
+            Text(_checking ? 'Installatie controleren...' : _ready ? 'Geïnstalleerd · M1–M5 en F1–F5 beschikbaar' : _downloading ? 'Downloaden · $pct%' : 'Niet geïnstalleerd · ongeveer 400 MB', style: TextStyle(color: context.textD, fontSize: 12)),
+          ])),
+        ]),
+        if (_downloading) ...[
+          const SizedBox(height: 16),
+          LinearProgressIndicator(value: _overallProgress, minHeight: 8, borderRadius: BorderRadius.circular(8)),
+          const SizedBox(height: 8),
+          Text('Totaal: $pct% · bestand $shownFile/$_total', style: TextStyle(color: context.textM, fontSize: 12)),
+          if (_file.isNotEmpty) Text(_file + ' · ' + (_fileProgress * 100).round().toString() + '%', overflow: TextOverflow.ellipsis, style: TextStyle(color: context.textD, fontSize: 11)),
+        ],
+        if (_error != null) ...[
+          const SizedBox(height: 10),
+          Text('Downloadfout: $_error', style: const TextStyle(color: AppColors.orange, fontSize: 11)),
+        ],
+        const SizedBox(height: 14),
+        SizedBox(width: double.infinity, child: FilledButton.icon(
+          onPressed: (_checking || _downloading || _ready) ? null : _download,
+          icon: Icon(_ready ? Icons.check_rounded : Icons.download_rounded),
+          label: Text(_ready ? 'Supertonic 3 is geïnstalleerd' : _downloading ? 'Downloaden...' : 'Download Supertonic 3 (~400 MB)'),
+        )),
+        const SizedBox(height: 8),
+        Text('Download bij voorkeur via wifi. De modellen blijven lokaal op dit apparaat en hoeven na installatie niet opnieuw te worden gedownload.', style: TextStyle(color: context.textD, fontSize: 11, height: 1.35)),
+      ]),
+    );
+  }
+}
