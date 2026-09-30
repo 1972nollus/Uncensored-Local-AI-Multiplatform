@@ -8,6 +8,7 @@ import '../controllers/chat_controller.dart';
 import '../controllers/model_controller.dart';
 import '../services/llm_service.dart';
 import '../services/conversation_prompt_service.dart';
+import '../services/supertonic_service.dart';
 
 /// Hands-free turn-based voice chat. Recognition, local inference and TTS run
 /// sequentially to avoid feeding the app's own spoken answer to the microphone.
@@ -23,6 +24,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
   final _tts = FlutterTts();
   final _supertonic = SupertonicTTS();
   final _supertonicPlayer = TTSAudioPlayer();
+  final _supertonicState = SupertonicService.instance;
   final _chat = Get.find<ChatController>();
   final _models = Get.find<ModelController>();
   final _llm = Get.find<LlmService>();
@@ -63,17 +65,33 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
   Future<bool> _ensureSupertonic() async {
     if (_supertonicReady) return true;
     if (_supertonicLoading) return false;
+    if (!await _supertonicState.refresh()) {
+      if (mounted) setState(() => _status = 'Download Supertonic 3 eerst via Settings.');
+      return false;
+    }
     _supertonicLoading = true;
-    if (mounted) setState(() => _status = 'Supertonic 3 laden...');
+    if (mounted) setState(() => _status = 'Supertonic 3 starten...');
     try {
       await _supertonic.initialize();
       _supertonicReady = true;
       return true;
     } catch (e) {
-      if (mounted) setState(() { _ttsEngine = 'apple'; _status = 'Supertonic kon niet laden; Apple-stem actief.'; });
+      if (mounted) setState(() => _status = 'Supertonic kon niet starten: $e');
       return false;
     } finally {
       _supertonicLoading = false;
+    }
+  }
+
+  Future<void> _saveVoiceSettings() async {
+    final box = Hive.box('settings');
+    await box.put('voice_tts_engine', _ttsEngine);
+    await box.put('voice_supertonic_voice', _supertonicVoice);
+    await box.put('voice_apple_style', _voiceStyle);
+    if (_voiceId == null) {
+      await box.delete('voice_apple_id');
+    } else {
+      await box.put('voice_apple_id', _voiceId);
     }
   }
 
@@ -117,23 +135,31 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
           DropdownButton<String>(value: _ttsEngine, isExpanded: true, items: const [
             DropdownMenuItem(value: 'apple', child: Text('Apple iPhone-stemmen')),
             DropdownMenuItem(value: 'supertonic', child: Text('Supertonic 3 · Neural offline')),
-          ], onChanged: (v) async { if (v == null) return; refresh(() => _ttsEngine = v); if (v == 'supertonic') { final ok = await _ensureSupertonic(); refresh(() { if (!ok) _ttsEngine = 'apple'; }); } }),
+          ], onChanged: (v) async {
+            if (v == null) return;
+            if (v == 'supertonic' && !await _supertonicState.refresh()) {
+              if (mounted) setState(() => _status = 'Download Supertonic 3 eerst via Settings.');
+              return;
+            }
+            refresh(() => _ttsEngine = v);
+            await _saveVoiceSettings();
+          }),
           if (_ttsEngine == 'supertonic') DropdownButton<String>(value: _supertonicVoice, isExpanded: true,
             items: const ['M1','M2','M3','M4','M5','F1','F2','F3','F4','F5'].map((v) => DropdownMenuItem(value: v, child: Text('Supertonic $v'))).toList(),
-            onChanged: (v) { if (v != null) refresh(() => _supertonicVoice = v); }),
+            onChanged: (v) async { if (v != null) { refresh(() => _supertonicVoice = v); await _saveVoiceSettings(); } }),
           const SizedBox(height: 12),
           if (_ttsEngine == 'apple') DropdownButton<String>(value: _voiceStyle, isExpanded: true, items: const [
             DropdownMenuItem(value: 'natural', child: Text('Natuurlijk')),
             DropdownMenuItem(value: 'expressive', child: Text('Expressief')),
             DropdownMenuItem(value: 'energetic', child: Text('Energiek')),
             DropdownMenuItem(value: 'calm', child: Text('Rustig')),
-          ], onChanged: (v) async { if (v == null) return; refresh(() => _voiceStyle = v); await _configureVoice(); }),
+          ], onChanged: (v) async { if (v == null) return; refresh(() => _voiceStyle = v); await _configureVoice(); await _saveVoiceSettings(); }),
           if (_ttsEngine == 'apple') DropdownButton<String>(value: _voiceId, isExpanded: true, hint: const Text('Automatische iPhone-stem'),
             items: [const DropdownMenuItem<String>(value: null, child: Text('Automatische iPhone-stem')),
               ..._voices.map((v) => DropdownMenuItem<String>(value: v['id'], child: Text(v['name']!)))],
             onChanged: (v) async { refresh(() => _voiceId = v);
-              if (v == null) await _tts.clearVoice(); await _configureVoice(); }),
-          Text(_ttsEngine == 'supertonic' ? 'Supertonic 3 draait lokaal. De modelbestanden (~400 MB) worden bij eerste gebruik gedownload en daarna gecachet.' : 'Apple TTS draait volledig lokaal.', style: const TextStyle(fontSize: 12)),
+              if (v == null) await _tts.clearVoice(); await _configureVoice(); await _saveVoiceSettings(); }),
+          Text(_ttsEngine == 'supertonic' ? 'Supertonic 3 draait lokaal. Modellen beheer je via Settings.' : 'Apple TTS draait volledig lokaal.', style: const TextStyle(fontSize: 12)),
           const SizedBox(height: 12),
           FilledButton.icon(onPressed: () async {
             await _speakText(_selectedLocale == 'nl_NL'
@@ -173,6 +199,10 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
     _language = settings.get('conversation_language', defaultValue: 'nl_NL') as String;
     _personality = settings.get('conversation_character', defaultValue: 'default') as String;
     _customPrompt = settings.get('conversation_custom_prompt', defaultValue: '') as String;
+    _ttsEngine = settings.get('voice_tts_engine', defaultValue: 'apple') as String;
+    _supertonicVoice = settings.get('voice_supertonic_voice', defaultValue: 'F1') as String;
+    _voiceStyle = settings.get('voice_apple_style', defaultValue: 'expressive') as String;
+    _voiceId = settings.get('voice_apple_id') as String?;
     _tts.setLanguage(_selectedLocale.replaceAll('_', '-'));
     _tts.setSpeechRate(0.51);
     _tts.setPitch(1.07);
