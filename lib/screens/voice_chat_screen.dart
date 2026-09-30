@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:flutter_tts/flutter_tts.dart';
+import 'package:supertonic_flutter/supertonic_flutter.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../controllers/chat_controller.dart';
 import '../controllers/model_controller.dart';
@@ -20,6 +21,8 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
     with SingleTickerProviderStateMixin {
   final _speech = stt.SpeechToText();
   final _tts = FlutterTts();
+  final _supertonic = SupertonicTTS();
+  final _supertonicPlayer = TTSAudioPlayer();
   final _chat = Get.find<ChatController>();
   final _models = Get.find<ModelController>();
   final _llm = Get.find<LlmService>();
@@ -39,6 +42,10 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
   String _customPrompt = '';
   String _voiceStyle = 'expressive';
   String? _voiceId;
+  String _ttsEngine = 'apple';
+  String _supertonicVoice = 'F1';
+  bool _supertonicReady = false;
+  bool _supertonicLoading = false;
   List<Map<String,String>> _voices = [];
   Future<void> _configureVoice() async {
     final locale = _selectedLocale.replaceAll('_', '-');
@@ -51,6 +58,42 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
     }
     if (_voiceId != null) await _tts.setVoice({'identifier': _voiceId!});
   }
+  String get _supertonicLanguage => _selectedLocale.split('_').first.toLowerCase();
+
+  Future<bool> _ensureSupertonic() async {
+    if (_supertonicReady) return true;
+    if (_supertonicLoading) return false;
+    _supertonicLoading = true;
+    if (mounted) setState(() => _status = 'Supertonic 3 laden...');
+    try {
+      await _supertonic.initialize();
+      _supertonicReady = true;
+      return true;
+    } catch (e) {
+      if (mounted) setState(() { _ttsEngine = 'apple'; _status = 'Supertonic kon niet laden; Apple-stem actief.'; });
+      return false;
+    } finally {
+      _supertonicLoading = false;
+    }
+  }
+
+  Future<void> _speakText(String text) async {
+    if (_ttsEngine == 'supertonic') {
+      if (await _ensureSupertonic()) {
+        final result = await _supertonic.synthesize(text, language: _supertonicLanguage, voiceStyle: _supertonicVoice, config: const TTSConfig(speechSpeed: 1.05, denoisingSteps: 5));
+        await _supertonicPlayer.play(result);
+        return;
+      }
+    }
+    await _configureVoice();
+    await _tts.speak(text);
+  }
+
+  Future<void> _stopSpeaking() async {
+    await _tts.stop();
+    await _supertonicPlayer.stop();
+  }
+
   Future<void> _voiceSettings() async {
     await _speech.stop();
     if (mounted) setState(() => _listening = false);
@@ -71,23 +114,29 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
           mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text('Steminstellingen', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
-          DropdownButton<String>(value: _voiceStyle, isExpanded: true, items: const [
+          DropdownButton<String>(value: _ttsEngine, isExpanded: true, items: const [
+            DropdownMenuItem(value: 'apple', child: Text('Apple iPhone-stemmen')),
+            DropdownMenuItem(value: 'supertonic', child: Text('Supertonic 3 · Neural offline')),
+          ], onChanged: (v) async { if (v == null) return; refresh(() => _ttsEngine = v); if (v == 'supertonic') { final ok = await _ensureSupertonic(); refresh(() { if (!ok) _ttsEngine = 'apple'; }); } }),
+          if (_ttsEngine == 'supertonic') DropdownButton<String>(value: _supertonicVoice, isExpanded: true,
+            items: const ['M1','M2','M3','M4','M5','F1','F2','F3','F4','F5'].map((v) => DropdownMenuItem(value: v, child: Text('Supertonic $v'))).toList(),
+            onChanged: (v) { if (v != null) refresh(() => _supertonicVoice = v); }),
+          const SizedBox(height: 12),
+          if (_ttsEngine == 'apple') DropdownButton<String>(value: _voiceStyle, isExpanded: true, items: const [
             DropdownMenuItem(value: 'natural', child: Text('Natuurlijk')),
             DropdownMenuItem(value: 'expressive', child: Text('Expressief')),
             DropdownMenuItem(value: 'energetic', child: Text('Energiek')),
             DropdownMenuItem(value: 'calm', child: Text('Rustig')),
           ], onChanged: (v) async { if (v == null) return; refresh(() => _voiceStyle = v); await _configureVoice(); }),
-          DropdownButton<String>(value: _voiceId, isExpanded: true, hint: const Text('Automatische iPhone-stem'),
+          if (_ttsEngine == 'apple') DropdownButton<String>(value: _voiceId, isExpanded: true, hint: const Text('Automatische iPhone-stem'),
             items: [const DropdownMenuItem<String>(value: null, child: Text('Automatische iPhone-stem')),
               ..._voices.map((v) => DropdownMenuItem<String>(value: v['id'], child: Text(v['name']!)))],
             onChanged: (v) async { refresh(() => _voiceId = v);
               if (v == null) await _tts.clearVoice(); await _configureVoice(); }),
-          const Text('Offline: tempo en toonhoogte. Echte emotionele spraak vereist een aparte stemengine.',
-            style: TextStyle(fontSize: 12)),
+          Text(_ttsEngine == 'supertonic' ? 'Supertonic 3 draait lokaal. De modelbestanden (~400 MB) worden bij eerste gebruik gedownload en daarna gecachet.' : 'Apple TTS draait volledig lokaal.', style: const TextStyle(fontSize: 12)),
           const SizedBox(height: 12),
           FilledButton.icon(onPressed: () async {
-            await _configureVoice();
-            await _tts.speak(_selectedLocale == 'nl_NL'
+            await _speakText(_selectedLocale == 'nl_NL'
               ? 'Hallo! Dit is mijn nieuwe stem. Wat zullen we bespreken?'
               : 'Hello! This is my new voice. What shall we discuss?');
           }, icon: const Icon(Icons.play_arrow), label: const Text('Stem beluisteren')),
@@ -214,8 +263,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
         return;
       }
       setState(() { _reply = answer; _speaking = true; _status = 'AI spreekt...'; });
-      await _configureVoice();
-      await _tts.speak(answer);
+      await _speakText(answer);
     } catch (e) {
       if (mounted) setState(() => _status = 'Fout: $e');
       return;
@@ -246,7 +294,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
     }
     if (_speaking) {
       _turnCancelled = true;
-      await _tts.stop();
+      await _stopSpeaking();
       if (mounted) setState(() {
         _speaking = false;
         _status = 'Voorlezen gestopt. Tik om te spreken.';
@@ -270,6 +318,7 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
     _active = false;
     _speech.stop();
     _tts.stop();
+    _supertonicPlayer.stop();
     _pulse.dispose();
     super.dispose();
   }
