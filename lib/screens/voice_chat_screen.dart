@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:audio_session/audio_session.dart';
+import 'package:audio_session/audio_session.dart' as audio_session;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:get/get.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
@@ -96,12 +96,12 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
   Future<void> _preparePlaybackSession() async {
     await _speech.stop();
     if (Platform.isIOS) {
-      final session = await AudioSession.instance;
-      await session.configure(const AudioSessionConfiguration(
-        avAudioSessionCategory: AVAudioSessionCategory.playback,
-        avAudioSessionMode: AVAudioSessionMode.spokenAudio,
-        avAudioSessionRouteSharingPolicy: AVAudioSessionRouteSharingPolicy.defaultPolicy,
-        avAudioSessionSetActiveOptions: AVAudioSessionSetActiveOptions.none,
+      final session = await audio_session.AudioSession.instance;
+      await session.configure(const audio_session.AudioSessionConfiguration(
+        avAudioSessionCategory: audio_session.AVAudioSessionCategory.playback,
+        avAudioSessionMode: audio_session.AVAudioSessionMode.spokenAudio,
+        avAudioSessionRouteSharingPolicy: audio_session.AVAudioSessionRouteSharingPolicy.defaultPolicy,
+        avAudioSessionSetActiveOptions: audio_session.AVAudioSessionSetActiveOptions.none,
       ));
       await session.setActive(true);
     }
